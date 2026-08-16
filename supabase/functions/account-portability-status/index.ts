@@ -1,11 +1,16 @@
 import { handleCorsPreflightIfNeeded } from "../_shared/cors.ts";
 import {
+  deleteExportJobChunks,
   handleError,
   jsonResponse,
   readJsonBody,
   requireAuth,
   requiredString,
 } from "../_shared/account-portability/server.ts";
+
+// A running export heartbeats at least once per table; if nothing has been
+// written for this long the worker died (usually OOM) and the job is stale.
+const STALE_JOB_MS = 10 * 60 * 1000;
 
 Deno.serve(async (req) => {
   const preflight = handleCorsPreflightIfNeeded(req);
