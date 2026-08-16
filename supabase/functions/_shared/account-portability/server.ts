@@ -55,8 +55,9 @@ type LooseDatabase = {
 type SupabaseAdmin = ReturnType<typeof createClient<LooseDatabase>>;
 
 const MAX_BUNDLED_ASSETS = 200;
-const MAX_SINGLE_ASSET_BYTES = 100 * 1024 * 1024;
-const MAX_TOTAL_BUNDLED_ASSET_BYTES = 500 * 1024 * 1024;
+// Kept modest so a single base64-encoded asset can never blow the isolate heap.
+const MAX_SINGLE_ASSET_BYTES = 25 * 1024 * 1024;
+const MAX_TOTAL_BUNDLED_ASSET_BYTES = 200 * 1024 * 1024;
 const BUNDLE_STORAGE_ASSETS = Deno.env.get("ACCOUNT_PORTABILITY_BUNDLE_ASSETS") !== "false";
 
 export interface AuthContext {
