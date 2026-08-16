@@ -1,5 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { getCorsHeaders } from "../cors.ts";
+import { Sha256Stream } from "./sha256Stream.ts";
 import {
   ACCOUNT_EXPORT_FORMAT,
   ACCOUNT_EXPORT_VERSION,
