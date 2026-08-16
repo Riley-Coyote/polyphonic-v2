@@ -1,11 +1,16 @@
 import { handleCorsPreflightIfNeeded } from "../_shared/cors.ts";
 import {
+  deleteExportJobChunks,
   handleError,
   jsonResponse,
   readJsonBody,
   requireAuth,
   requiredString,
 } from "../_shared/account-portability/server.ts";
+
+// A running export heartbeats at least once per table; if nothing has been
+// written for this long the worker died (usually OOM) and the job is stale.
+const STALE_JOB_MS = 10 * 60 * 1000;
 
 Deno.serve(async (req) => {
   const preflight = handleCorsPreflightIfNeeded(req);
@@ -25,11 +30,36 @@ Deno.serve(async (req) => {
     if (error) throw new Error(error.message);
     if (!job) return jsonResponse(req, { error: "Job not found" }, 404);
 
+    const stale = job as { status?: unknown; updated_at?: unknown; direction?: unknown };
+    const updatedAt = typeof stale.updated_at === "string" ? Date.parse(stale.updated_at) : NaN;
+    if (
+      stale.status === "processing"
+      && Number.isFinite(updatedAt)
+      && Date.now() - updatedAt > STALE_JOB_MS
+    ) {
+      const message = "Export stopped responding and was marked failed. Please try again.";
+      await admin
+        .from("account_portability_jobs")
+        .update({
+          status: "failed",
+          errors: [message],
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", jobId)
+        .eq("user_id", user.id);
+      if (stale.direction === "export") {
+        await deleteExportJobChunks(admin, user.id, jobId).catch(() => {});
+      }
+      (job as Record<string, unknown>).status = "failed";
+      (job as Record<string, unknown>).errors = [message];
+    }
+
     const { count } = await admin
       .from("account_portability_row_map")
       .select("id", { count: "exact", head: true })
       .eq("job_id", jobId)
       .eq("user_id", user.id);
+
 
     const jobRow = job as {
       direction?: unknown;
