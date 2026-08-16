@@ -239,9 +239,9 @@ async function runChunkedAccountExportJob(
         file_name: result.fileName,
         storage_bucket: ACCOUNT_PORTABILITY_BUCKET,
         storage_path: result.storagePath,
-        counts: result.archive.manifest.tables,
-        warnings: result.archive.warnings,
-        manifest: result.archive.manifest,
+        counts: result.counts,
+        warnings: result.warnings,
+        manifest: result.manifest,
         expires_at: expiresAt,
         completed_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
@@ -250,6 +250,7 @@ async function runChunkedAccountExportJob(
       .eq("user_id", userId);
     if (updateError) throw new Error(updateError.message);
   } catch (error) {
+    console.error("account export failed", jobId, error);
     await admin
       .from("account_portability_jobs")
       .update({
@@ -259,7 +260,42 @@ async function runChunkedAccountExportJob(
       })
       .eq("id", jobId)
       .eq("user_id", userId);
+    await deleteExportJobChunks(admin, userId, jobId).catch(() => {});
   }
+}
+
+async function heartbeatExportJob(
+  admin: SupabaseAdmin,
+  userId: string,
+  jobId: string,
+  counts: Record<string, number>,
+  progress: { tables_done: number; total_tables: number; chunks: number; stage: string },
+): Promise<void> {
+  const { error } = await admin
+    .from("account_portability_jobs")
+    .update({
+      counts,
+      preview: { progress },
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", jobId)
+    .eq("user_id", userId);
+  if (error) console.warn("export heartbeat failed", jobId, error.message);
+}
+
+/** Removes the per-chunk objects of an export job, keeping the final archive file. */
+export async function deleteExportJobChunks(
+  admin: SupabaseAdmin,
+  userId: string,
+  jobId: string,
+): Promise<number> {
+  const prefix = `${userId}/${jobId}/chunks`;
+  const { data, error } = await admin.storage.from(ACCOUNT_PORTABILITY_BUCKET).list(prefix, { limit: 1000 });
+  if (error || !data?.length) return 0;
+  const paths = data.map((item: { name: string }) => `${prefix}/${item.name}`);
+  const { error: removeError } = await admin.storage.from(ACCOUNT_PORTABILITY_BUCKET).remove(paths);
+  if (removeError) return 0;
+  return paths.length;
 }
 
 async function createChunkedAccountExport(
@@ -268,7 +304,9 @@ async function createChunkedAccountExport(
   passphrase: string,
   jobId: string,
 ): Promise<{
-  archive: ChunkedEncryptedArchive;
+  counts: Record<string, number>;
+  warnings: string[];
+  manifest: ChunkedEncryptedArchive["manifest"];
   fileName: string;
   storagePath: string;
   archiveHash: string;
@@ -281,40 +319,48 @@ async function createChunkedAccountExport(
   const warnings: string[] = [];
   const refs = new Map<string, { bucket: string; path: string }>();
   let chunkIndex = 0;
+  let tablesDone = 0;
 
   for (const config of PORTABLE_TABLES) {
     counts[config.name] = 0;
-    if (!config.userColumn) continue;
-    for await (const rows of fetchTableRowPages(admin, config, userId, warnings)) {
-      const redacted = rows.map((row) => redactPortableRow(config, row));
-      counts[config.name] += redacted.length;
-      for (const ref of collectStorageRefsFromTables({ [config.name]: redacted })) {
-        refs.set(`${ref.bucket}/${ref.path}`, ref);
-      }
-      if (redacted.length === 0) continue;
+    if (config.userColumn) {
+      for await (const rows of fetchTableRowPages(admin, config, userId, warnings)) {
+        const redacted = rows.map((row) => redactPortableRow(config, row));
+        counts[config.name] += redacted.length;
+        for (const ref of collectStorageRefsFromTables({ [config.name]: redacted })) {
+          refs.set(`${ref.bucket}/${ref.path}`, ref);
+        }
+        if (redacted.length === 0) continue;
 
-      const encryptedChunk = await encryptArchiveRowsChunk(config.name, chunkIndex, redacted, context);
-      const chunkText = JSON.stringify(encryptedChunk);
-      const chunkPath = `${userId}/${jobId}/chunks/${String(chunkIndex).padStart(6, "0")}-${safeStorageName(config.name)}.json`;
-      const { error: uploadError } = await admin.storage
-        .from(ACCOUNT_PORTABILITY_BUCKET)
-        .upload(chunkPath, new Blob([chunkText], { type: "application/json" }), {
-          upsert: true,
-          contentType: "application/json",
+        const encryptedChunk = await encryptArchiveRowsChunk(config.name, chunkIndex, redacted, context);
+        const chunkText = JSON.stringify(encryptedChunk);
+        const chunkPath = `${userId}/${jobId}/chunks/${String(chunkIndex).padStart(6, "0")}-${safeStorageName(config.name)}.json`;
+        const { error: uploadError } = await admin.storage
+          .from(ACCOUNT_PORTABILITY_BUCKET)
+          .upload(chunkPath, new Blob([chunkText], { type: "application/json" }), {
+            upsert: true,
+            contentType: "application/json",
+          });
+        if (uploadError) throw new Error(`Could not upload ${config.name} chunk: ${uploadError.message}`);
+
+        chunks.push({
+          table: config.name,
+          index: chunkIndex,
+          row_count: redacted.length,
+          storage_bucket: ACCOUNT_PORTABILITY_BUCKET,
+          storage_path: chunkPath,
+          sha256: await sha256Text(chunkText),
         });
-      if (uploadError) throw new Error(`Could not upload ${config.name} chunk: ${uploadError.message}`);
-
-      chunks.push({
-        table: config.name,
-        index: chunkIndex,
-        row_count: redacted.length,
-        storage_bucket: ACCOUNT_PORTABILITY_BUCKET,
-        storage_path: chunkPath,
-        sha256: await sha256Text(chunkText),
-        inline_payload: chunkText,
-      });
-      chunkIndex += 1;
+        chunkIndex += 1;
+      }
     }
+    tablesDone += 1;
+    await heartbeatExportJob(admin, userId, jobId, counts, {
+      tables_done: tablesDone,
+      total_tables: PORTABLE_TABLES.length,
+      chunks: chunkIndex,
+      stage: `tables:${config.name}`,
+    });
   }
 
   if (BUNDLE_STORAGE_ASSETS) {
@@ -323,49 +369,133 @@ async function createChunkedAccountExport(
     }
   }
   const assetRefs = uniqueRefs([...refs.values()]);
-  const assets = BUNDLE_STORAGE_ASSETS
-    ? await downloadAssets(admin, assetRefs, warnings)
-    : deferredAssets(assetRefs, warnings);
-  const archive: ChunkedEncryptedArchive = {
+  await heartbeatExportJob(admin, userId, jobId, counts, {
+    tables_done: tablesDone,
+    total_tables: PORTABLE_TABLES.length,
+    chunks: chunkIndex,
+    stage: "assembling",
+  });
+
+  const fileName = archiveFileName(exportId);
+  const storagePath = `${userId}/${jobId}/${fileName}`;
+  const header = {
     format: ACCOUNT_EXPORT_FORMAT,
     version: ACCOUNT_EXPORT_VERSION,
-    mode: "chunked",
+    mode: "chunked" as const,
     encryption: context.encryption,
     export_id: exportId,
     exported_at: exportedAt,
     source_user_id: userId,
-    manifest: {
+  };
+
+  let assetTotal = 0;
+  let assetMissing = 0;
+  const manifestRef: { value: ChunkedEncryptedArchive["manifest"] | null } = { value: null };
+
+  // The archive is emitted as a stream: chunk bodies are piped straight from
+  // storage and assets are encoded one at a time, so peak memory stays at a
+  // single chunk/asset instead of the whole archive.
+  async function* archiveParts(): AsyncGenerator<string> {
+    const headerText = JSON.stringify(header);
+    yield `${headerText.slice(0, -1)},"chunks":[`;
+
+    for (let i = 0; i < chunks.length; i += 1) {
+      const ref = chunks[i];
+      const chunkText = await downloadArchiveChunkText(admin, ref);
+      yield `${i === 0 ? "" : ","}${JSON.stringify({ ...ref, inline_payload: chunkText })}`;
+    }
+    yield `],"assets":[`;
+
+    let first = true;
+    for await (const asset of streamExportAssets(admin, assetRefs, warnings)) {
+      assetTotal += 1;
+      if (asset.missing) assetMissing += 1;
+      yield `${first ? "" : ","}${JSON.stringify(asset)}`;
+      first = false;
+    }
+    yield `],"warnings":${JSON.stringify(warnings)}`;
+
+    const manifest = {
       app: "polyphonic",
       tables: counts,
-      assets: {
-        total: assets.length,
-        missing: assets.filter((asset) => asset.missing).length,
-      },
+      assets: { total: assetTotal, missing: assetMissing },
       excluded: [...EXCLUDED_PORTABILITY_TABLES],
-    },
-    chunks,
-    assets,
-    warnings,
-  };
+    } as ChunkedEncryptedArchive["manifest"];
+    manifestRef.value = manifest;
+    yield `,"manifest":${JSON.stringify(manifest)}}`;
+  }
 
-  const fileName = archiveFileName(exportId);
-  const archiveText = JSON.stringify(archive);
-  const storagePath = `${userId}/${jobId}/${fileName}`;
-  const { error: uploadError } = await admin.storage
-    .from(ACCOUNT_PORTABILITY_BUCKET)
-    .upload(storagePath, new Blob([archiveText], { type: "application/json" }), {
-      upsert: true,
-      contentType: "application/json",
-    });
-  if (uploadError) throw new Error(`Could not upload export manifest: ${uploadError.message}`);
+  const archiveHash = await uploadStreamedArchive(storagePath, archiveParts());
+  await deleteExportJobChunks(admin, userId, jobId).catch(() => {});
 
   return {
-    archive,
+    counts,
+    warnings,
+    manifest: manifestRef.value || {
+      app: "polyphonic",
+      tables: counts,
+      assets: { total: assetTotal, missing: assetMissing },
+      excluded: [...EXCLUDED_PORTABILITY_TABLES],
+    } as ChunkedEncryptedArchive["manifest"],
     fileName,
     storagePath,
-    archiveHash: await sha256Text(archiveText),
+    archiveHash,
   };
 }
+
+/** Uploads a generated archive to storage as a stream, returning its sha256. */
+async function uploadStreamedArchive(
+  storagePath: string,
+  parts: AsyncGenerator<string>,
+): Promise<string> {
+  const supabaseUrl = Deno.env.get("SUPABASE_URL");
+  const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+  if (!supabaseUrl || !serviceRoleKey) throw new Error("Supabase environment is not configured");
+
+  const hasher = new Sha256Stream();
+  const encoder = new TextEncoder();
+  const body = new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      try {
+        const next = await parts.next();
+        if (next.done) {
+          controller.close();
+          return;
+        }
+        const bytes = encoder.encode(next.value);
+        hasher.update(bytes);
+        controller.enqueue(bytes);
+      } catch (error) {
+        controller.error(error);
+      }
+    },
+  });
+
+  const endpoint = `${supabaseUrl}/storage/v1/object/${ACCOUNT_PORTABILITY_BUCKET}/${storagePath
+    .split("/")
+    .map((segment) => encodeURIComponent(segment))
+    .join("/")}`;
+  const response = await fetch(endpoint, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${serviceRoleKey}`,
+      apikey: serviceRoleKey,
+      "Content-Type": "application/json",
+      "x-upsert": "true",
+      "Cache-Control": "3600",
+    },
+    body,
+    // Deno requires an explicit duplex hint for streamed request bodies.
+    ...({ duplex: "half" } as Record<string, unknown>),
+  });
+  if (!response.ok) {
+    const detail = await response.text().catch(() => "");
+    throw new Error(`Could not upload export archive (${response.status}): ${detail.slice(0, 300)}`);
+  }
+  await response.body?.cancel().catch(() => {});
+  return hasher.hex();
+}
+
 
 export async function decryptArchiveBody(body: JsonRecord): Promise<{ archiveText: string; payload: AccountExportPayload; archiveHash: string }> {
   const archiveText = requiredString(body, "archive_text");
