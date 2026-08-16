@@ -1,49 +1,48 @@
-## The bug
+# Export failures: diagnosis and fix
 
-Journal entries from certain agents are stored ending mid-sentence at variable lengths (roughly 100–200 chars). Not a fixed 128-char limit — the exact cutoffs vary (115, 120, 134, 149, 162…), which points to token-based truncation, not character.
+## What I found
 
-Looking at the data:
+The user's export is not hitting a configured size limit — it is running out of memory in the export worker at the very last step, and the job then dies silently.
 
-| agent | model | avg journal length | short entries |
-|---|---|---:|---:|
-| `luca` | `anthropic/claude-opus-4-7` | 1515 | 4 / 45 |
-| `frontline` | `google/gemini-2.5-pro` | 572 | 11 / 14 |
-| `the-adhd-navigator` | `google/gemini-3.1-pro-preview` | 161 | 6 / 6 |
-| `5-1`, `sonnet-45` | non-reasoning | 1500–1800 | 0 |
+Evidence from the live database and storage:
 
-Every agent whose journals are truncated is on a **reasoning model** (Gemini Pro thinks by default; Opus 4.7 with extended thinking). In `supabase/functions/journal-write/index.ts:320` the request sends `max_tokens: 1024` with no `reasoning` config. Reasoning models spend most of that budget on invisible reasoning tokens, so only ~30–50 tokens of visible content survive, `finish_reason` comes back as `length`, and the partial stream is what lands in `journal_entries.content`.
+- The affected account has run 7 exports since yesterday (02:00–09:16 UTC today). All 7 are still `status = "processing"`, with empty `errors`, no file name, and no completion time. Nothing ever marked them failed.
+- Every attempt writes exactly the same 69 encrypted chunks (~27 MB) in ~30 seconds, and always stops right after the last table (`crisis_events`). Then it dies — the final archive file is never written.
+- Their last successful export was Aug 11 (68 chunks, final archive 67 MB). Since then their data grew: engrams 2,647 → 2,884, mnemos states 2,581 → 2,810, attachments 32 → 38.
+- Failed attempts leave their chunks behind: 940 orphaned objects, 623 MB, in the export bucket for this one user.
 
-Nothing on the DB side truncates — `content` is plain `text`, no triggers, no varchar cap. The Luca-app-side display isn't clipping either; the row in Postgres really is 149 chars.
+Root cause: after all table chunks are uploaded, the worker assembles ONE giant JSON string in memory that contains every chunk again (`inline_payload`) plus every storage asset base64-encoded, then uploads it. Peak memory is roughly 2–3x the archive size. At 67 MB it just fit on Aug 11; with the extra data added since, it now exceeds the edge worker's memory ceiling and the isolate is killed outright — which is why no error is ever recorded and the job hangs in "processing" forever (the UI just spins).
 
-## Fix
+Secondary problems the same incident exposes:
 
-Two-part change, both in `supabase/functions/journal-write/index.ts`:
+- No failure is recorded when the worker is killed, so the user gets no message at all.
+- No progress heartbeat, so a hung job is indistinguishable from a slow one.
+- Orphaned chunks from failed jobs are never cleaned up (623 MB and growing for this user alone).
 
-1. **Raise `max_tokens` to 4096** — enough headroom for reasoning models to think and still produce a 150–400 word journal entry.
-2. **Add OpenRouter `reasoning` cap** — pass `reasoning: { max_tokens: 1024, exclude: true }` on the request body. This caps reasoning at 1k tokens (so it can't consume the whole budget) and drops reasoning traces from the response since journal-write doesn't use them. Non-reasoning models ignore the field.
-3. **Log `finish_reason` when it isn't `stop`** — one-line `console.warn` so future truncations surface in edge logs instead of silently landing in the table.
+## The fix
 
-No changes to DB schema, RLS, other edge functions, or the frontend. Same-turn scope stays surgical.
+1. Stream the final archive instead of buffering it
+   - Assemble the export file as a stream: write the JSON header, then pipe each chunk's text straight from storage into the upload body one at a time, then the assets, then the footer.
+   - Peak memory becomes ~one chunk instead of the whole archive, so exports scale with account size instead of falling off a cliff.
+   - The downloaded `.polyphonic-export` file stays byte-compatible and self-contained, so existing import/restore keeps working unchanged.
 
-## Why not fix per-agent
+2. Keep assets out of memory
+   - Download-and-encode each asset one at a time into the same stream, and lower the in-archive asset budget so a big attachment set degrades into references with a clear warning instead of killing the job.
 
-Overriding `journal_model` per agent to a non-reasoning fallback would work but hides the real issue — every future reasoning-capable agent (Opus 5, Gemini 4, o1, DeepSeek R1) would hit the same wall. Fixing the request shape once covers all of them.
+3. Make failures visible
+   - Heartbeat the job row as each table finishes (tables done / chunks written) so progress is observable.
+   - Add a watchdog that marks any export stuck in `processing` past a timeout as `failed` with an actionable message, and surface that message in the export UI instead of an endless spinner.
 
-## Out of scope (flagged for later)
+4. Clean up
+   - Delete chunk objects for failed/expired jobs (including the 623 MB currently orphaned), and mark the 7 zombie jobs as failed so the user can retry cleanly.
 
-The same `max_tokens: 1024` + no reasoning cap pattern exists in these sibling functions and is likely producing similar truncations, but the user only asked about journals so I'm leaving them alone unless requested:
+5. Verify
+   - Re-run the export for the affected account end to end, confirm it reaches `completed` with a downloadable file, confirm the row counts match the tables, and confirm an import preview of the resulting file parses.
 
-- `anima-observe/index.ts:227` (`max_tokens: 1500`)
-- `anima-dream/index.ts:174` (500)
-- `anima-wander/index.ts:208` (1024)
-- `anima-believe/index.ts:252` (500)
-- `anima-question/index.ts:160` (512)
-- `anima-initiate/index.ts:227` (200)
+## Technical notes
 
-Happy to sweep them in a follow-up if you want.
-
-## Verification
-
-- Trigger one journal-write manually via edge function invocation for `the-adhd-navigator` (the worst offender). Confirm the new row is >1000 chars and doesn't end mid-word.
-- Confirm `luca` and other non-reasoning agents still write normally.
-- Check edge logs for the new `finish_reason` warning — should be absent on healthy runs.
+- `supabase/functions/_shared/account-portability/server.ts` — `createChunkedAccountExport` (chunk loop, `inline_payload`, final `JSON.stringify(archive)` + upload) is where the memory blowup is; `runChunkedAccountExportJob`'s catch never runs on an OOM kill.
+- Streamed upload will go through the storage REST endpoint with a `ReadableStream` body, since the JS client's `upload` wants a Blob.
+- Asset caps live at the top of the same file (`MAX_BUNDLED_ASSETS`, `MAX_SINGLE_ASSET_BYTES`, `MAX_TOTAL_BUNDLED_ASSET_BYTES`).
+- Watchdog can be a scheduled sweep plus a check inside `account-portability-status` so a stale job is reported the moment the user polls.
+- No schema change is strictly required; an optional `progress` jsonb column on `account_portability_jobs` would make the heartbeat cleaner (currently it would go into `manifest`/`warnings`).
