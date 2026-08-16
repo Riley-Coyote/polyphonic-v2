@@ -1045,6 +1045,70 @@ async function downloadAssets(
   return assets;
 }
 
+/**
+ * Yields export assets one at a time so a streamed archive never holds more
+ * than a single base64-encoded asset in memory.
+ */
+async function* streamExportAssets(
+  admin: SupabaseAdmin,
+  refs: Array<{ bucket: string; path: string }>,
+  warnings: string[],
+): AsyncGenerator<PortableAsset> {
+  if (!BUNDLE_STORAGE_ASSETS) {
+    for (const asset of deferredAssets(refs, warnings)) yield asset;
+    return;
+  }
+
+  let bundled = 0;
+  let totalBytes = 0;
+  for (const ref of refs) {
+    if (bundled >= MAX_BUNDLED_ASSETS) {
+      warnings.push(`Storage asset skipped because the export reached the bundled asset limit: ${ref.bucket}/${ref.path}`);
+      yield { ...ref, missing: true, error: "bundled asset limit reached" };
+      continue;
+    }
+
+    const knownSize = await storageObjectSize(admin, ref.bucket, ref.path);
+    if (knownSize === null) {
+      warnings.push(`Storage asset size unknown; not bundled: ${ref.bucket}/${ref.path}`);
+      yield { ...ref, missing: true, error: "size unknown" };
+      continue;
+    }
+    if (knownSize > MAX_SINGLE_ASSET_BYTES) {
+      warnings.push(`Storage asset too large for encrypted archive: ${ref.bucket}/${ref.path}`);
+      yield { ...ref, size: knownSize, missing: true, error: "asset too large" };
+      continue;
+    }
+    if (totalBytes + knownSize > MAX_TOTAL_BUNDLED_ASSET_BYTES) {
+      warnings.push(`Storage asset skipped to keep the export under archive limits: ${ref.bucket}/${ref.path}`);
+      yield { ...ref, size: knownSize, missing: true, error: "archive asset budget reached" };
+      continue;
+    }
+
+    const { data, error } = await admin.storage.from(ref.bucket).download(ref.path);
+    if (error || !data) {
+      warnings.push(`Storage asset missing: ${ref.bucket}/${ref.path}`);
+      yield { ...ref, missing: true, error: error?.message || "missing" };
+      continue;
+    }
+    const buffer = await data.arrayBuffer();
+    if (buffer.byteLength > MAX_SINGLE_ASSET_BYTES || totalBytes + buffer.byteLength > MAX_TOTAL_BUNDLED_ASSET_BYTES) {
+      warnings.push(`Storage asset skipped after download size check: ${ref.bucket}/${ref.path}`);
+      yield { ...ref, size: buffer.byteLength, missing: true, error: "asset size cap exceeded" };
+      continue;
+    }
+    totalBytes += buffer.byteLength;
+    bundled += 1;
+    yield {
+      ...ref,
+      content_type: data.type || "application/octet-stream",
+      size: buffer.byteLength,
+      base64: bytesToBase64(new Uint8Array(buffer)),
+    };
+  }
+}
+
+
 async function storageObjectSize(admin: SupabaseAdmin, bucket: string, path: string): Promise<number | null> {
   const cleanPath = path.replace(/^\/+/, "");
   const parts = cleanPath.split("/");
