@@ -117,9 +117,8 @@ const button: React.CSSProperties = {
   fontFamily: font,
   fontSize: '15px',
   fontWeight: 500,
-  lineHeight: '48px',
-  height: '48px',
-  padding: '0 22px',
+  lineHeight: '20px',
+  padding: '14px 22px',
   borderRadius: '8px',
   textDecoration: 'none',
 }
