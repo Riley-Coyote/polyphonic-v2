@@ -159,3 +159,8 @@ project_id = "kknchdnrujzheulqzowv"
     verify_jwt = false
   [functions.subagent-run]
     verify_jwt = false
+
+  [functions.beta-signup]
+    verify_jwt = false
+  [functions.beta-invite]
+    verify_jwt = true
