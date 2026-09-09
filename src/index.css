@@ -2685,6 +2685,10 @@ html {
     background 220ms var(--ease-premium);
 }
 
+a.luca-download-trigger {
+  text-decoration: none;
+}
+
 .luca-download-trigger:hover {
   border-color: rgba(255, 255, 255, 0.13);
   background: rgba(255, 255, 255, 0.034);
