@@ -1123,6 +1123,81 @@ export type Database = {
         }
         Relationships: []
       }
+      beta_signup_attempts: {
+        Row: {
+          attempted_at: string
+          id: number
+          ip_hash: string
+          outcome: string
+        }
+        Insert: {
+          attempted_at?: string
+          id?: number
+          ip_hash: string
+          outcome: string
+        }
+        Update: {
+          attempted_at?: string
+          id?: number
+          ip_hash?: string
+          outcome?: string
+        }
+        Relationships: []
+      }
+      beta_signups: {
+        Row: {
+          created_at: string
+          email: string
+          email_normalized: string | null
+          id: string
+          invite_count: number
+          invited_at: string | null
+          ip_hash: string | null
+          last_download_url: string | null
+          metadata: Json
+          notes: string | null
+          referrer: string | null
+          source: string
+          status: string
+          updated_at: string
+          user_agent: string | null
+        }
+        Insert: {
+          created_at?: string
+          email: string
+          email_normalized?: string | null
+          id?: string
+          invite_count?: number
+          invited_at?: string | null
+          ip_hash?: string | null
+          last_download_url?: string | null
+          metadata?: Json
+          notes?: string | null
+          referrer?: string | null
+          source?: string
+          status?: string
+          updated_at?: string
+          user_agent?: string | null
+        }
+        Update: {
+          created_at?: string
+          email?: string
+          email_normalized?: string | null
+          id?: string
+          invite_count?: number
+          invited_at?: string | null
+          ip_hash?: string | null
+          last_download_url?: string | null
+          metadata?: Json
+          notes?: string | null
+          referrer?: string | null
+          source?: string
+          status?: string
+          updated_at?: string
+          user_agent?: string | null
+        }
+        Relationships: []
+      }
       chat_attachment_quotas: {
         Row: {
           quota_bytes: number
