@@ -1,5 +1,5 @@
 // beta-invite — service-role-only. Sends the beta download email to people on
-// the beta_signups list through the existing transactional email queue, so
+// the beta_signups list through Lovable's managed email delivery, so
 // suppression, retries, and the send log all apply.
 //
 //   POST (Authorization: Bearer <SUPABASE_SERVICE_ROLE_KEY>)
@@ -12,7 +12,7 @@
 //     "dry_run": true                               list targets + return rendered HTML, send nothing
 //   }
 //
-// Env (optional): BETA_FROM_NAME, BETA_FROM_EMAIL, BETA_REPLY_TO, BETA_SITE_URL, BETA_ASSET_BASE.
+// Env (optional): BETA_REPLY_TO, BETA_SITE_URL, BETA_ASSET_BASE.
 
 import * as React from 'npm:react@18.3.1'
 import { renderAsync } from 'npm:@react-email/components@0.0.22'
@@ -20,9 +20,7 @@ import { createClient } from 'npm:@supabase/supabase-js@2'
 import { getCorsHeaders, handleCorsPreflightIfNeeded } from '../_shared/cors.ts'
 import { requireServiceRole } from '../_shared/serviceRoleGuard.ts'
 import { BetaInviteEmail } from '../_shared/email-templates/beta-invite.tsx'
-
-const SENDER_DOMAIN = 'notify.polyphonic.chat'
-const SUBJECT = 'Your Polyphonic beta build is ready'
+import { sendTemplateEmail } from '../_shared/transactional-email-templates/send-email.ts'
 
 type SignupRow = {
   id: string
@@ -81,105 +79,77 @@ Deno.serve(async (req) => {
   if (selectError) return json({ error: selectError.message }, 500, cors)
 
   const candidates = (rows ?? []) as SignupRow[]
-  const eligible = candidates.filter((r) =>
+  const targets = candidates.filter((r) =>
     r.status === 'pending' || (resend && r.status === 'invited') || (typeof body.email === 'string' && r.status !== 'unsubscribed' && r.status !== 'bounced')
   )
 
-  // Never email a suppressed address.
-  const { data: suppressed } = await supabase
-    .from('suppressed_emails')
-    .select('email')
-    .in('email', eligible.map((r) => r.email_normalized))
-  const suppressedSet = new Set((suppressed ?? []).map((s: { email: string }) => s.email.toLowerCase()))
-  const targets = eligible.filter((r) => !suppressedSet.has(r.email_normalized))
-
   const siteUrl = Deno.env.get('BETA_SITE_URL') || 'https://polyphonic.chat/beta/'
   const assetBase = Deno.env.get('BETA_ASSET_BASE') || 'https://polyphonic.chat/beta/assets/email'
-  const fromName = Deno.env.get('BETA_FROM_NAME') || 'Polyphonic'
-  const fromEmail = Deno.env.get('BETA_FROM_EMAIL') || 'noreply@polyphonic.chat'
   const replyTo = Deno.env.get('BETA_REPLY_TO') || undefined
 
-  const render = async (plain: boolean) =>
-    await renderAsync(
-      React.createElement(BetaInviteEmail, { downloadUrl: downloadUrl || 'https://polyphonic.chat/beta/', siteUrl, assetBase, note }),
-      plain ? { plainText: true } : undefined,
-    )
+  const templateData = {
+    downloadUrl: downloadUrl || 'https://polyphonic.chat/beta/',
+    siteUrl,
+    assetBase,
+    note,
+  }
 
   if (dryRun) {
+    const element = React.createElement(BetaInviteEmail, templateData)
     return json(
       {
         dry_run: true,
         targets: targets.map((t) => ({ email: t.email, status: t.status, invite_count: t.invite_count })),
-        skipped_suppressed: eligible.length - targets.length,
-        preview_html: await render(false),
-        preview_text: await render(true),
+        preview_html: await renderAsync(element),
+        preview_text: await renderAsync(element, { plainText: true }),
       },
       200,
       cors,
     )
   }
 
-  const html = await render(false)
-  const text = await render(true)
   const sent: string[] = []
   const failed: { email: string; error: string }[] = []
+  let skippedSuppressed = 0
 
   for (const row of targets) {
-    // One unsubscribe token per address, shared with the rest of the email system.
-    let token: string | null = null
-    const { data: existing } = await supabase
-      .from('email_unsubscribe_tokens')
-      .select('token')
-      .eq('email', row.email_normalized)
-      .maybeSingle()
-    if (existing?.token) token = existing.token
-    else {
-      token = crypto.randomUUID()
-      const { error: tokenError } = await supabase
-        .from('email_unsubscribe_tokens')
-        .insert({ token, email: row.email_normalized })
-      if (tokenError) token = null
-    }
-
-    const messageId = crypto.randomUUID()
-    await supabase.from('email_send_log').insert({
-      message_id: messageId,
-      template_name: 'beta-invite',
-      recipient_email: row.email,
-      status: 'pending',
-    })
-
-    const payload: Record<string, unknown> = {
-      message_id: messageId,
-      to: row.email,
-      from: `${fromName} <${fromEmail}>`,
-      sender_domain: SENDER_DOMAIN,
-      subject: SUBJECT,
-      html,
-      text,
-      purpose: 'transactional',
-      label: 'beta-invite',
-      idempotency_key: `beta-invite-${row.id}-${row.invite_count + 1}`,
-      queued_at: new Date().toISOString(),
-    }
-    if (replyTo) payload.reply_to = replyTo
-    if (token) payload.unsubscribe_token = token
-
-    const { error: enqueueError } = await supabase.rpc('enqueue_email', {
-      queue_name: 'transactional_emails',
-      payload,
-    })
-    if (enqueueError) {
-      await supabase.from('email_send_log').insert({
-        message_id: messageId,
+    let result: { sent: boolean; reason?: string }
+    try {
+      result = await sendTemplateEmail('beta-invite', row.email, {
+        templateData,
+        idempotencyKey: `beta-invite-${row.id}-${row.invite_count + 1}`,
+        replyTo,
+      })
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      const { error: logError } = await supabase.from('email_send_log').insert({
         template_name: 'beta-invite',
         recipient_email: row.email,
         status: 'failed',
-        error_message: 'Failed to enqueue email',
+        error_message: message.slice(0, 1000),
       })
-      failed.push({ email: row.email, error: enqueueError.message })
+      if (logError) console.error('Failed to log beta invite failure', logError)
+      failed.push({ email: row.email, error: message })
       continue
     }
+
+    if (!result.sent) {
+      const { error: logError } = await supabase.from('email_send_log').insert({
+        template_name: 'beta-invite',
+        recipient_email: row.email,
+        status: 'suppressed',
+      })
+      if (logError) console.error('Failed to log suppressed beta invite', logError)
+      skippedSuppressed++
+      continue
+    }
+
+    const { error: logError } = await supabase.from('email_send_log').insert({
+      template_name: 'beta-invite',
+      recipient_email: row.email,
+      status: 'sent',
+    })
+    if (logError) console.error('Failed to log sent beta invite', logError)
 
     await supabase
       .from('beta_signups')
@@ -193,5 +163,5 @@ Deno.serve(async (req) => {
     sent.push(row.email)
   }
 
-  return json({ queued: sent.length, failed, skipped_suppressed: eligible.length - targets.length }, 200, cors)
+  return json({ sent: sent.length, failed, skipped_suppressed: skippedSuppressed }, 200, cors)
 })
