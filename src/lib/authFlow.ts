@@ -41,8 +41,11 @@ async function linkAnonymousIdentity(
     },
   } as any);
 
-  if (error) return { error: error.message ?? 'Account linking failed', redirected: false };
-  return { redirected: Boolean(data?.url) };
+  // Manual identity linking can be unavailable (disabled project-side, provider not
+  // configured on the auth server, etc). In that case fall through to the normal
+  // sign-in flow instead of dead-ending the guest on an error message.
+  if (error || !data?.url) return null;
+  return { redirected: true };
 }
 
 export async function signInWithGoogle(nextPath = '/chat'): Promise<{ error?: string; redirected: boolean }> {
