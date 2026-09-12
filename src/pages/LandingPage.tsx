@@ -18,7 +18,7 @@ import LandingParticleField, {
   type LandingFieldHandle,
   type LandingFieldState,
 } from '@/components/LandingParticleField';
-import { ArrowDownToLine, Plus } from 'lucide-react';
+import { Plus } from 'lucide-react';
 
 /**
  * LandingPage — public, unauthenticated entry surface.
