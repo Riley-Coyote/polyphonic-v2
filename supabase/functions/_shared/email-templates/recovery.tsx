@@ -23,7 +23,9 @@ export const RecoveryEmail = ({
   confirmationUrl,
 }: RecoveryEmailProps) => (
   <Html lang="en" dir="ltr">
-    <Head />
+    <Head>
+      <style>{darkModeCss}</style>
+    </Head>
     <Preview>Reset your password for {siteName}</Preview>
     <Body style={main}>
       <Container style={container}>
@@ -32,7 +34,7 @@ export const RecoveryEmail = ({
           We received a request to reset your password for {siteName}. Click
           the button below to choose a new password.
         </Text>
-        <Button style={button} href={confirmationUrl}>
+        <Button className="dm-btn" style={button} href={confirmationUrl}>
           Reset Password
         </Button>
         <Text style={footer}>
@@ -64,8 +66,17 @@ const button = {
   backgroundColor: '#000000',
   color: '#ffffff',
   fontSize: '14px',
+  border: '1px solid #000000',
   borderRadius: '8px',
   padding: '12px 20px',
   textDecoration: 'none',
 }
 const footer = { fontSize: '12px', color: '#999999', margin: '30px 0 0' }
+// Rendered as a text child, which React may HTML-escape: keep this CSS free of >, &, and quotes.
+const darkModeCss = `
+  @media (prefers-color-scheme: dark) {
+    .dm-btn { background-color: #ffffff !important; color: #000000 !important; }
+  }
+  [data-ogsc] .dm-btn { background-color: #ffffff !important; color: #000000 !important; }
+  [data-ogsb] .dm-btn { background-color: #ffffff !important; color: #000000 !important; }
+`
