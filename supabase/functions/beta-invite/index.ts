@@ -4,7 +4,8 @@
 //
 //   POST (Authorization: Bearer <SUPABASE_SERVICE_ROLE_KEY>)
 //   {
-//     "download_url": "https://…/Polyphonic.dmg",   required unless dry_run
+//     "download_url": "https://…/Polyphonic.dmg",   optional: defaults to the latest
+//                                                   GitHub release (BETA_DOWNLOAD_URL)
 //     "email": "one@person.com",                    send to one address, or
 //     "all_pending": true, "limit": 50,             send to everyone still pending
 //     "resend": false,                              also re-send to already-invited
@@ -12,7 +13,7 @@
 //     "dry_run": true                               list targets + return rendered HTML, send nothing
 //   }
 //
-// Env (optional): BETA_REPLY_TO, BETA_SITE_URL, BETA_ASSET_BASE.
+// Env (optional): BETA_REPLY_TO, BETA_SITE_URL, BETA_ASSET_BASE, BETA_DOWNLOAD_URL.
 
 import * as React from 'npm:react@18.3.1'
 import { renderAsync } from 'npm:@react-email/components@0.0.22'
@@ -55,7 +56,14 @@ Deno.serve(async (req) => {
   }
 
   const dryRun = body.dry_run === true
-  const downloadUrl = typeof body.download_url === 'string' ? body.download_url.trim() : ''
+  // The stable link: the app's latest GitHub release always serves the current
+  // beta under this name, and the installed app updates itself from the same
+  // release. A send may still override it per call.
+  const defaultDownloadUrl =
+    Deno.env.get('BETA_DOWNLOAD_URL') ||
+    'https://github.com/Riley-Coyote/luca-agent-network-v1/releases/latest/download/Polyphonic.dmg'
+  const requestedDownloadUrl = typeof body.download_url === 'string' ? body.download_url.trim() : ''
+  const downloadUrl = requestedDownloadUrl || defaultDownloadUrl
   if (!dryRun && !/^https:\/\/\S+$/.test(downloadUrl)) {
     return json({ error: 'download_url must be an https URL' }, 400, cors)
   }
@@ -88,7 +96,7 @@ Deno.serve(async (req) => {
   const replyTo = Deno.env.get('BETA_REPLY_TO') || undefined
 
   const templateData = {
-    downloadUrl: downloadUrl || 'https://polyphonic.chat/beta/',
+    downloadUrl,
     siteUrl,
     assetBase,
     note,
