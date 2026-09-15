@@ -17,9 +17,12 @@ import {
 } from 'npm:@react-email/components@0.0.22'
 
 // The download email for the Polyphonic macOS beta. Same visual language as
-// polyphonic.chat/beta: black ground, one white pill button, quiet meta line.
-// Images are hosted under polyphonic.chat/beta/assets/email/ so the message
-// still reads correctly when a client blocks images.
+// polyphonic.chat/beta (v3, September 2026): black ground, Luca's glyph as the
+// mark, the page's headline as the one
+// image, one pill button, quiet mono footer. Images are hosted under
+// polyphonic.chat/beta/assets/email/ so the message still reads when a client
+// blocks images; the dendrite is an animated GIF whose first frame is the
+// finished mark, for clients that show only that.
 
 export interface BetaInviteEmailProps {
   downloadUrl: string
@@ -31,7 +34,7 @@ export interface BetaInviteEmailProps {
 export const BetaInviteEmail = ({ downloadUrl, siteUrl, assetBase, note }: BetaInviteEmailProps) => (
   <Html lang="en" dir="ltr">
     <Head />
-    <Preview>Your Polyphonic beta build for macOS is ready to download.</Preview>
+    <Preview>Your Polyphonic beta for macOS is ready to download.</Preview>
     <Body style={main}>
       <Container style={container}>
         <Section style={brandRow}>
@@ -39,34 +42,33 @@ export const BetaInviteEmail = ({ downloadUrl, siteUrl, assetBase, note }: BetaI
           <Text style={brand}>Polyphonic</Text>
         </Section>
 
-        <Img src={`${assetBase}/together.png`} width="520" height="150" alt="Your agents, together." style={hero} />
+        <Img src={`${assetBase}/home.png`} width="520" height="150" alt="One home for your agents." style={hero} />
 
         <Heading style={h1}>Your build is ready.</Heading>
         <Text style={lead}>
-          Thanks for asking for the Polyphonic beta. One home on your Mac for agents, memory, and
-          projects. Download it, open it, and meet Luca.
+          Thanks for asking for the Polyphonic beta. One home on your Mac for the agents you already
+          run: they remember you, share your projects, and can call on each other, with you in the
+          room. Download it, open it, and meet Luca.
         </Text>
 
         <Button style={button} href={downloadUrl}>
           Download Polyphonic for macOS
         </Button>
 
-        <Text style={meta}>
-          For the best experience, have Claude Code or Codex installed with an active account.
-        </Text>
+        <Text style={meta}>Best with Claude Code or Codex installed and signed in.</Text>
 
         {note ? <Text style={text}>{note}</Text> : null}
 
         <Text style={text}>
-          It is a beta. Anything that feels off, slow, or confusing is worth telling us about;
-          that is what this round is for.
+          It's a beta. Anything that feels off, slow or confusing is worth telling us about. That's
+          what this round is for.
         </Text>
 
         <Hr style={rule} />
         <Text style={footer}>
-          You are receiving this because you joined the beta list at{' '}
-          <Link href={siteUrl} style={footerLink}>polyphonic.chat/beta</Link>. If the button does
-          not work, copy this link: <Link href={downloadUrl} style={footerLink}>{downloadUrl}</Link>
+          You're receiving this because you asked for the beta at{' '}
+          <Link href={siteUrl} style={footerLink}>polyphonic.chat/beta</Link>. If the button doesn't
+          work, copy this link: <Link href={downloadUrl} style={footerLink}>{downloadUrl}</Link>
         </Text>
         <Text style={footer}>Riley Coyote · Mnemos Research</Text>
       </Container>
@@ -76,6 +78,7 @@ export const BetaInviteEmail = ({ downloadUrl, siteUrl, assetBase, note }: BetaI
 
 export default BetaInviteEmail
 
+// The page's tokens: --t0 #E4E4E0 · --t1 #B4B4B4 · --t2 #7E7E7E · --line #232323.
 const font = '"Instrument Sans", -apple-system, BlinkMacSystemFont, "Helvetica Neue", Arial, sans-serif'
 const mono = '"Fragment Mono", "SF Mono", Menlo, Consolas, monospace'
 
@@ -86,9 +89,12 @@ const container: React.CSSProperties = {
   margin: '0 auto',
   padding: '24px 28px 32px',
   fontFamily: font,
-  color: '#f2f2ee',
+  color: '#E4E4E0',
 }
-const brandRow: React.CSSProperties = { marginBottom: '28px' }
+const brandRow: React.CSSProperties = { marginBottom: '30px' }
+const brandCell: React.CSSProperties = { verticalAlign: 'top', paddingTop: '4px' }
+const dendriteCell: React.CSSProperties = { verticalAlign: 'top', width: '72px', textAlign: 'right' }
+const dendrite: React.CSSProperties = { display: 'block', marginLeft: 'auto' }
 const mark: React.CSSProperties = { display: 'inline-block', verticalAlign: 'middle', marginRight: '10px' }
 const brand: React.CSSProperties = {
   display: 'inline-block',
@@ -97,32 +103,32 @@ const brand: React.CSSProperties = {
   fontSize: '15px',
   fontWeight: 500,
   letterSpacing: '-0.01em',
-  color: '#f2f2ee',
+  color: '#E4E4E0',
 }
-const hero: React.CSSProperties = { display: 'block', width: '100%', maxWidth: '520px', height: 'auto', margin: '0 0 28px' }
+const hero: React.CSSProperties = { display: 'block', width: '100%', maxWidth: '520px', height: 'auto', margin: '0 0 30px' }
 const h1: React.CSSProperties = {
   margin: '0 0 14px',
-  fontSize: '30px',
+  fontSize: '28px',
   lineHeight: '1.15',
   fontWeight: 500,
-  letterSpacing: '-0.03em',
-  color: '#ffffff',
+  letterSpacing: '-0.028em',
+  color: '#E4E4E0',
 }
-const lead: React.CSSProperties = { margin: '0 0 24px', fontSize: '16px', lineHeight: '1.6', color: '#c9c9c2' }
-const text: React.CSSProperties = { margin: '18px 0 0', fontSize: '15px', lineHeight: '1.6', color: '#b5b5ae' }
+const lead: React.CSSProperties = { margin: '0 0 26px', fontSize: '16px', lineHeight: '1.6', color: '#B4B4B4' }
+const text: React.CSSProperties = { margin: '18px 0 0', fontSize: '15px', lineHeight: '1.6', color: '#B4B4B4' }
 const button: React.CSSProperties = {
   display: 'inline-block',
-  backgroundColor: '#f5f5f5',
-  color: '#101010',
+  backgroundColor: '#E4E4E0',
+  color: '#000000',
   fontFamily: font,
   fontSize: '15px',
   fontWeight: 500,
   lineHeight: '20px',
-  padding: '14px 22px',
-  borderRadius: '8px',
+  padding: '12px 20px',
+  borderRadius: '999px',
   textDecoration: 'none',
 }
-const meta: React.CSSProperties = { margin: '18px 0 0', fontSize: '13px', lineHeight: '1.6', color: '#8f8f88' }
-const rule: React.CSSProperties = { borderColor: '#262626', margin: '32px 0 16px' }
-const footer: React.CSSProperties = { margin: '0 0 8px', fontFamily: mono, fontSize: '11px', lineHeight: '1.7', color: '#77776f' }
-const footerLink: React.CSSProperties = { color: '#a9a9a2', textDecoration: 'underline' }
+const meta: React.CSSProperties = { margin: '18px 0 0', fontSize: '13px', lineHeight: '1.6', color: '#7E7E7E' }
+const rule: React.CSSProperties = { borderColor: '#232323', margin: '32px 0 16px' }
+const footer: React.CSSProperties = { margin: '0 0 8px', fontFamily: mono, fontSize: '11px', lineHeight: '1.7', color: '#7E7E7E' }
+const footerLink: React.CSSProperties = { color: '#B4B4B4', textDecoration: 'underline' }
