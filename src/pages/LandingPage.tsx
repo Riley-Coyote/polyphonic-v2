@@ -267,8 +267,12 @@ function Chrome({ mode, goTo }: { mode: Mode; goTo: (m: Mode) => void }) {
       </button>
 
       <div className="landing-chrome-actions">
-        {/* Desktop app: the beta landing page is a static page at /beta/, outside the SPA router. */}
-        <a className="luca-download-trigger" href="/beta/" aria-label="Get the Polyphonic beta for Mac">
+        {/* Keep this public handoff on Polyphonic's custom domain, including from previews. */}
+        <a
+          className="luca-download-trigger"
+          href="https://polyphonic.chat/beta/"
+          aria-label="Get the Polyphonic beta for Mac"
+        >
           <ArrowDownToLine size={14} strokeWidth={1.65} aria-hidden="true" />
           <span>Get the Mac beta</span>
         </a>
