@@ -18,7 +18,7 @@ import LandingParticleField, {
   type LandingFieldHandle,
   type LandingFieldState,
 } from '@/components/LandingParticleField';
-import { Plus } from 'lucide-react';
+import { ArrowDownToLine, Plus } from 'lucide-react';
 
 /**
  * LandingPage — public, unauthenticated entry surface.
@@ -267,13 +267,11 @@ function Chrome({ mode, goTo }: { mode: Mode; goTo: (m: Mode) => void }) {
       </button>
 
       <div className="landing-chrome-actions">
-        {/* Beta button temporarily hidden until the /beta page is ready to ship.
-            Restore:
-            <a className="luca-download-trigger" href="/beta/" aria-label="Get the Polyphonic beta for Mac">
-              <ArrowDownToLine size={14} strokeWidth={1.65} aria-hidden="true" />
-              <span>Get the Mac beta</span>
-            </a>
-        */}
+        {/* Desktop app: the beta landing page is a static page at /beta/, outside the SPA router. */}
+        <a className="luca-download-trigger" href="/beta/" aria-label="Get the Polyphonic beta for Mac">
+          <ArrowDownToLine size={14} strokeWidth={1.65} aria-hidden="true" />
+          <span>Get the Mac beta</span>
+        </a>
         <span className="landing-chrome-mark" aria-hidden="true">
           <PolyphonicMark size={17} strokeWidth={6} />
         </span>
