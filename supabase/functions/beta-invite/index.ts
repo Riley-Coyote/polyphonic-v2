@@ -29,7 +29,11 @@ type SignupRow = {
   email_normalized: string
   status: string
   invite_count: number
+  metadata: Record<string, unknown> | null
 }
+
+/** Failed deliveries a pending row may accumulate before it is parked as bounced. */
+const MAX_INVITE_FAILURES = 3
 
 function json(body: Record<string, unknown>, status: number, cors: Record<string, string>): Response {
   return new Response(JSON.stringify(body), {
@@ -74,7 +78,7 @@ Deno.serve(async (req) => {
   // Select targets.
   let query = supabase
     .from('beta_signups')
-    .select('id,email,email_normalized,status,invite_count')
+    .select('id,email,email_normalized,status,invite_count,metadata')
     .order('created_at', { ascending: true })
   if (typeof body.email === 'string' && body.email.trim()) {
     query = query.eq('email_normalized', body.email.trim().toLowerCase())
@@ -138,6 +142,17 @@ Deno.serve(async (req) => {
       })
       if (logError) console.error('Failed to log beta invite failure', logError)
       failed.push({ email: row.email, error: message })
+      // The scheduled run retries pending rows every minute; count the failures
+      // and park the row as bounced after three so one bad address cannot fill
+      // the send log. A person can set it back to pending by hand.
+      const failures = (Number(row.metadata?.invite_failures) || 0) + 1
+      await supabase
+        .from('beta_signups')
+        .update({
+          metadata: { ...(row.metadata ?? {}), invite_failures: failures, last_invite_error: message.slice(0, 300) },
+          ...(failures >= MAX_INVITE_FAILURES ? { status: 'bounced', notes: `invite failed ${failures}×: ${message.slice(0, 200)}` } : {}),
+        })
+        .eq('id', row.id)
       continue
     }
 
@@ -149,6 +164,12 @@ Deno.serve(async (req) => {
       })
       if (logError) console.error('Failed to log suppressed beta invite', logError)
       skippedSuppressed++
+      // Suppressed by the email provider (bounced or complained before): mark the
+      // row so the scheduled run stops retrying it.
+      await supabase
+        .from('beta_signups')
+        .update({ status: 'bounced', notes: `suppressed by email delivery${result.reason ? `: ${result.reason}` : ''}` })
+        .eq('id', row.id)
       continue
     }
 
