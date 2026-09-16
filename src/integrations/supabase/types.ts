@@ -5133,16 +5133,7 @@ export type Database = {
       }
       current_user_token_gate_email_bypass: { Args: never; Returns: boolean }
       decrypt_user_api_key: { Args: { p_user_id: string }; Returns: string }
-      delete_email: {
-        Args: { message_id: number; queue_name: string }
-        Returns: boolean
-      }
       delete_user_api_key: { Args: never; Returns: undefined }
-      email_queue_dispatch: { Args: never; Returns: undefined }
-      enqueue_email: {
-        Args: { payload: Json; queue_name: string }
-        Returns: number
-      }
       get_app_config: { Args: { config_key: string }; Returns: string }
       has_role: {
         Args: {
@@ -5318,15 +5309,6 @@ export type Database = {
       mnemos_run_health_snapshot: { Args: never; Returns: Json }
       mnemos_run_identity_derivation_cohort: { Args: never; Returns: Json }
       mnemos_run_rehearsal_cohort: { Args: never; Returns: Json }
-      move_to_dlq: {
-        Args: {
-          dlq_name: string
-          message_id: number
-          payload: Json
-          source_queue: string
-        }
-        Returns: number
-      }
       openclaw_verify_device_token: {
         Args: { p_device_id: string; p_token: string }
         Returns: boolean
@@ -5334,14 +5316,6 @@ export type Database = {
       prune_cron_job_run_details:
         | { Args: never; Returns: number }
         | { Args: { p_retention?: string }; Returns: number }
-      read_email_batch: {
-        Args: { batch_size: number; queue_name: string; vt: number }
-        Returns: {
-          message: Json
-          msg_id: number
-          read_ct: number
-        }[]
-      }
       reap_stuck_imports: { Args: never; Returns: number }
       record_cron_run: {
         Args: {
