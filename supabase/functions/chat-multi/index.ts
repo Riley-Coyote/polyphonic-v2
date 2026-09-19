@@ -652,7 +652,13 @@ serve(async (req) => {
       !likelyResearchTeamRequest &&
       !simulationRequestWithoutForgeSubject &&
       looksLikeAgentForgeRequest(visibleMessageForRouting);
-    const likelyGeneratedMediaRequest = agentRuntimeActive && agentIsSystemLuca && looksLikeImageToolRequest(messageWithAttachments);
+    // Image/media turns only need the deterministic legacy shortcut when the
+    // agent runtime cannot expose generate_image / edit_image itself. When it
+    // can, keep the turn in the runtime so Luca authors the actual image prompt
+    // instead of the user's raw message being forwarded verbatim.
+    const runtimeCanRenderMedia = isExtendedRuntimeToolsEnabled(userId);
+    const likelyGeneratedMediaRequest = agentRuntimeActive && agentIsSystemLuca &&
+      !runtimeCanRenderMedia && looksLikeImageToolRequest(messageWithAttachments);
     const classicK3ToolsEnabled = classicRuntime && selectedClassicModel === "moonshotai/kimi-k3" && backend.allowTools;
     const likelyToolRequest = (agentRuntimeActive || classicK3ToolsEnabled) && agentIsSystemLuca && looksLikeLegacyToolPlannerRequest(messageWithAttachments);
     const shouldRunLegacyToolPlanner =
