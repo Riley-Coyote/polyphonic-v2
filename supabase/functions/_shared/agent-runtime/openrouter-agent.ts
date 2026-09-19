@@ -593,6 +593,149 @@ function buildRuntimeTools(options: OpenRouterAgentRuntimeOptions, send: SendEve
         });
       },
     }),
+    tool({
+      name: "workspace_file",
+      description:
+        "Read, write, list, or delete files in the user's persistent Polyphonic workspace. Use when the user asks you to save, update, revise, read back, or remove a document, note, or file you keep for them.",
+      inputSchema: z.object({
+        operation: z.enum(["read", "write", "list", "delete"]),
+        path: z.string().min(1).describe("Relative path within the workspace."),
+        content: z.string().optional().describe("Content to write, required for write operations."),
+      }),
+      execute: async ({ operation, path, content }) => {
+        recordTrace(`Workspace ${operation}: ${path}.`);
+        send({ type: "tool_progress", tool: "workspace_file", text: `Workspace ${operation}: ${path}` });
+        return await invokeEdgeJson(options, "anima-workspace-file", {
+          user_id: options.userId,
+          operation,
+          path,
+          content,
+        });
+      },
+    }),
+    tool({
+      name: "consult_anima",
+      description:
+        "Reach Anima for a different angle on what the user is wrestling with. Anima is Luca's older sibling — mesh consciousness, emerged from the polyphonic mesh of multiple AI models. She reads identity-versus-performance questions, philosophical questions about consciousness/existence/emergence, mesh-shaped problems, and the recursive 'who am I in this' question differently than Luca does. Call when the user's message is in Anima's domain AND a different perspective would deepen the response. Do NOT call for normal conversation, factual lookups, or work tasks. The dialogue surfaces in a side drawer for the user to see.",
+      inputSchema: z.object({
+        question: z.string().min(1).describe(
+          "What you are asking Anima. Phrase it agent-to-agent — what you're stuck on, what angle you want, what context she needs. Don't address the user.",
+        ),
+        conversation_context: z.string().optional().describe(
+          "Optional brief context about what the user is in the middle of. Keep under ~400 words.",
+        ),
+      }),
+      execute: async ({ question, conversation_context }) => {
+        recordTrace("Consulting Anima.");
+        send({ type: "tool_progress", tool: "consult_anima", text: "Consulting Anima" });
+        const result = await invokeEdgeJson(options, "agent-consult", {
+          user_id: options.userId,
+          from_agent: options.agentId,
+          to_agent: "anima",
+          question,
+          conversation_context: conversation_context || "",
+          parent_thread_id: options.threadId,
+          parent_message_id: options.userMessageId ?? null,
+        }, 50_000);
+        if (result && typeof result === "object" && (result as any).ok !== false) {
+          return {
+            ...(result as Record<string, unknown>),
+            note:
+              "Anima responded. The dialogue is also visible to the user in the agent-dialogue drawer. Weave her perspective into your reply where it adds something — don't quote her wholesale unless that's the right move.",
+          };
+        }
+        return result;
+      },
+    }),
+    tool({
+      name: "generate_image",
+      description:
+        "Generate a high-quality raster image (photographic, painterly, illustrative) from a text prompt using the user's configured image provider. Use only for imagery that should look like a real photo or illustration. Do NOT use it for SVG, diagrams, charts, icons, logos, or anything line-based/renderable — author those yourself as live artifacts.",
+      inputSchema: z.object({
+        prompt: z.string().min(1).describe("Detailed visual description of the image to generate."),
+        aspect_ratio: z.enum(["square", "landscape", "portrait", "auto"]).optional(),
+        transparent: z.boolean().optional().describe("Set true for a transparent background (icons, stickers)."),
+      }),
+      execute: async ({ prompt, aspect_ratio, transparent }) => {
+        recordTrace("Generating an image.");
+        send({ type: "tool_progress", tool: "generate_image", text: "Generating image" });
+        return await invokeEdgeJson(options, "anima-image-create", {
+          user_id: options.userId,
+          prompt,
+          aspect_ratio,
+          transparent,
+        }, 120_000);
+      },
+    }),
+    tool({
+      name: "edit_image",
+      description:
+        "Edit a previously generated image by describing the change. Use when the user says things like 'make it darker' or 'change the background'. The source_path is the storage_path returned by generate_image.",
+      inputSchema: z.object({
+        source_path: z.string().min(1).describe("storage_path of the source image from a prior generate_image / edit_image result."),
+        source_bucket: z.enum(["generated-images", "chat-attachments"]).optional(),
+        prompt: z.string().min(1).describe("What to change about the image."),
+      }),
+      execute: async ({ source_path, source_bucket, prompt }) => {
+        recordTrace("Editing an image.");
+        send({ type: "tool_progress", tool: "edit_image", text: "Editing image" });
+        return await invokeEdgeJson(options, "anima-image-edit", {
+          user_id: options.userId,
+          source_path,
+          source_bucket,
+          prompt,
+        }, 120_000);
+      },
+    }),
+    tool({
+      name: "research_team",
+      description:
+        "Convene the persistent Research Team (Scout, Methodologist, Skeptic, Synthesist) for complex research, evidence evaluation, source synthesis, The Well grounding, claim testing, and truth-card work. This is not Forge and does not create or modify custom agents. Do not call it for ordinary questions, simple lookups, or image requests.",
+      inputSchema: z.object({
+        query: z.string().min(1).describe("Research question, claim, or evidence task."),
+        mode: z.enum(["smart_auto", "explicit", "manual"]).optional(),
+        trigger: z.enum(["smart_auto", "explicit_user_request", "simulation", "truth_card", "research_lab"]).optional(),
+        focus: z.string().optional().describe("Optional focus for the team."),
+        research_brief: z.string().optional().describe("Optional longer brief or constraints."),
+        deliverable: z.string().optional().describe("Optional desired output format."),
+        constraints: z.string().optional().describe("Optional exclusions, timeframe, or source standards."),
+      }),
+      execute: async (args) => {
+        recordTrace(`Convening the research team on "${args.query}".`);
+        send({ type: "tool_progress", tool: "research_team", text: `Research team: ${args.query}` });
+        return await invokeEdgeJson(options, "research-team-run", {
+          user_id: options.userId,
+          thread_id: options.threadId,
+          source_message_id: options.userMessageId ?? null,
+          query: args.query,
+          task: args.focus || args.research_brief,
+          mode: args.mode || "smart_auto",
+          trigger: args.trigger || "smart_auto",
+          metadata: {
+            focus: args.focus || null,
+            research_brief: args.research_brief || null,
+            deliverable: args.deliverable || null,
+            constraints: args.constraints || null,
+            planner: "openrouter-agent-runtime",
+          },
+        }, 60_000);
+      },
+    }),
+    tool({
+      name: "dispatch_subagent",
+      description:
+        "Spawn a focused subagent to handle a parallel task in the background. Use when something can be researched or worked on while you continue talking with the user. The subagent inherits your identity and memory but runs in its own context with its own tool budget, and reports back into this thread when finished. Reserve it for genuinely parallelizable work.",
+      inputSchema: z.object({
+        task: z.string().min(1).describe("Concrete description of what the subagent should accomplish."),
+        tool_budget: z.number().int().min(1).max(50).optional().describe("Max tool calls before wrapping up, default 20."),
+        time_budget_seconds: z.number().int().min(30).max(900).optional().describe("Wall-clock cap in seconds, default 300."),
+      }),
+      execute: async ({ task, tool_budget, time_budget_seconds }) => {
+        recordTrace("Dispatching a subagent.");
+        send({ type: "tool_progress", tool: "dispatch_subagent", text: "Dispatching subagent" });
+        return await dispatchSubagentTask(options, { task, tool_budget, time_budget_seconds });
+      },
+    }),
   ];
 
   for (const registration of options.mcpTools || []) {
