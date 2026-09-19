@@ -400,6 +400,7 @@ async function runOpenRouterAgentSdkTurn(
       agent: options.agentId,
       thinking_content: persistedThinking,
       tokens_used: tokensUsed,
+      ...(mediaAttachments.length > 0 ? { attachments: mediaAttachments } : {}),
       metadata: {
         runtime: "openrouter_agent_sdk",
         tool_call_count: toolCalls.size,
