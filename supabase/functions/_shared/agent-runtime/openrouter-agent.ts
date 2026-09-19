@@ -757,6 +757,10 @@ function buildRuntimeTools(options: OpenRouterAgentRuntimeOptions, send: SendEve
     }),
   ];
 
+  if (isExtendedRuntimeToolsEnabled(options.userId)) {
+    tools.push(...extendedTools);
+  }
+
   for (const registration of options.mcpTools || []) {
     tools.push(tool({
       name: registration.registeredName,
