@@ -249,6 +249,7 @@ async function runOpenRouterAgentSdkTurn(
   const toolCalls = new Map<string, RuntimeToolCall>();
   const toolResults = new Map<string, RuntimeToolResult>();
   const startedToolCalls = new Set<string>();
+  const streamedItemTypes: string[] = [];
   const agentTrace: string[] = [];
   const recordTrace: TraceRecorder = (line) => {
     if (line) agentTrace.push(line);
@@ -304,6 +305,7 @@ async function runOpenRouterAgentSdkTurn(
 
   const itemPromise = (async () => {
     for await (const item of result.getItemsStream()) {
+      streamedItemTypes.push(String((item as any)?.type ?? "unknown"));
       if (item.type === "function_call") {
         const call = {
           id: item.callId,
@@ -375,6 +377,18 @@ async function runOpenRouterAgentSdkTurn(
   ]).then(([text, thinking, response]) => [text, thinking, response]);
 
   const responseData = response as any;
+  // Diagnostic only: what the model actually returned versus what the item
+  // stream surfaced. Lets a DB query distinguish "no function_call was emitted"
+  // from "a function_call was emitted but never reached the tool loop".
+  const runtimeDiag = {
+    tools_offered: runtimeTools.length,
+    response_status: responseData.status ?? null,
+    incomplete_reason: responseData.incompleteDetails?.reason ?? null,
+    output_item_types: Array.isArray(responseData.output)
+      ? responseData.output.slice(0, 40).map((item: any) => String(item?.type ?? "unknown"))
+      : [],
+    streamed_item_types: streamedItemTypes.slice(0, 40),
+  };
   const finalContent = responseData.outputText || fullContent || "(empty)";
   const tokensUsed = responseData.usage?.totalTokens ?? null;
   const usedModel = responseData.model || options.model;
@@ -419,6 +433,7 @@ async function runOpenRouterAgentSdkTurn(
       metadata: {
         runtime: "openrouter_agent_sdk",
         tool_call_count: toolCalls.size,
+        runtime_diag: runtimeDiag,
       },
     }).select("id").single();
     if (insertError) {
