@@ -369,6 +369,7 @@ async function runOpenRouterAgentSdkTurn(
       ? responseData.output[0].annotations
       : [];
   const toolMessages = buildToolMessages(toolCalls, toolResults);
+  const mediaAttachments = buildMediaAttachments(toolCalls, toolResults);
   const agentTraceBlock = agentTrace.length > 0 ? `— Agent activity —\n${agentTrace.join("\n")}` : "";
   const persistedThinking = [agentTraceBlock, fullThinking].filter(Boolean).join("\n\n") || null;
 
