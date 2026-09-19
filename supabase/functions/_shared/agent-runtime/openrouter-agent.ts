@@ -639,10 +639,11 @@ async function invokeEdgeJson(
   options: OpenRouterAgentRuntimeOptions,
   edgeFunction: string,
   body: Record<string, unknown>,
+  timeoutMs = 18_000,
 ): Promise<unknown> {
   return await safeToolResult(async () => {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 18_000);
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
     try {
       const response = await fetch(`${options.supabaseUrl}/functions/v1/${edgeFunction}`, {
         method: "POST",
