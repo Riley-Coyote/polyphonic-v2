@@ -369,6 +369,7 @@ async function runOpenRouterAgentSdkTurn(
       ? responseData.output[0].annotations
       : [];
   const toolMessages = buildToolMessages(toolCalls, toolResults);
+  const mediaAttachments = buildMediaAttachments(toolCalls, toolResults);
   const agentTraceBlock = agentTrace.length > 0 ? `— Agent activity —\n${agentTrace.join("\n")}` : "";
   const persistedThinking = [agentTraceBlock, fullThinking].filter(Boolean).join("\n\n") || null;
 
@@ -399,6 +400,7 @@ async function runOpenRouterAgentSdkTurn(
       agent: options.agentId,
       thinking_content: persistedThinking,
       tokens_used: tokensUsed,
+      ...(mediaAttachments.length > 0 ? { attachments: mediaAttachments } : {}),
       metadata: {
         runtime: "openrouter_agent_sdk",
         tool_call_count: toolCalls.size,
@@ -923,6 +925,40 @@ async function safeToolResult(run: () => Promise<unknown>): Promise<unknown> {
         : String(err);
     return { ok: false, error: message };
   }
+}
+
+/**
+ * Extract rendered media (generate_image / edit_image results) so the assistant
+ * message carries them as attachments. Without this the image lands in storage
+ * but never renders inline in the thread.
+ */
+function buildMediaAttachments(
+  toolCalls: Map<string, RuntimeToolCall>,
+  toolResults: Map<string, RuntimeToolResult>,
+): Array<{ type: string; url: string; meta?: Record<string, unknown> }> {
+  const out: Array<{ type: string; url: string; meta?: Record<string, unknown> }> = [];
+  for (const [callId, call] of toolCalls) {
+    if (call.name !== "generate_image" && call.name !== "edit_image") continue;
+    const result = toolResults.get(callId);
+    if (!result) continue;
+    let parsed: any = result.output;
+    if (typeof parsed === "string") {
+      try { parsed = JSON.parse(parsed); } catch { continue; }
+    }
+    const url = parsed?.image_url;
+    if (typeof url !== "string" || url.length === 0) continue;
+    out.push({
+      type: "image",
+      url,
+      meta: {
+        kind: call.name,
+        storage_path: parsed?.storage_path,
+        revised_prompt: parsed?.revised_prompt,
+        source_path: parsed?.source_path,
+      },
+    });
+  }
+  return out;
 }
 
 function buildToolMessages(
