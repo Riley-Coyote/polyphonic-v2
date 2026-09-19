@@ -149,17 +149,11 @@ export function isOpenRouterAgentRuntimeEnabled(userId?: string | null): boolean
  * Extended tool set (workspace_file, consult_anima, generate_image, edit_image,
  * research_team, dispatch_subagent) for the agent-SDK runtime.
  *
- * Off by default so the live runtime is unchanged for everyone. Two knobs:
- *   AGENT_RUNTIME_EXTENDED_TOOLS_ENABLED    "true" | "false" (global, default false)
- *   AGENT_RUNTIME_EXTENDED_TOOLS_ALLOWLIST  comma-separated user uuids (per-user opt-in)
+ * On for every user. `AGENT_RUNTIME_EXTENDED_TOOLS_ENABLED=false` is kept only
+ * as an explicit kill switch; the per-user allowlist has been retired.
  */
-export function isExtendedRuntimeToolsEnabled(userId?: string | null): boolean {
-  const allowlist = (Deno.env.get("AGENT_RUNTIME_EXTENDED_TOOLS_ALLOWLIST") || "")
-    .split(",")
-    .map((value) => value.trim())
-    .filter(Boolean);
-  if (userId && allowlist.includes(userId)) return true;
-  return (Deno.env.get("AGENT_RUNTIME_EXTENDED_TOOLS_ENABLED") || "").toLowerCase() === "true";
+export function isExtendedRuntimeToolsEnabled(_userId?: string | null): boolean {
+  return (Deno.env.get("AGENT_RUNTIME_EXTENDED_TOOLS_ENABLED") || "").toLowerCase() !== "false";
 }
 
 
