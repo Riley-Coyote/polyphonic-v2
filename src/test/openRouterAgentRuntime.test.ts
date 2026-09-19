@@ -62,6 +62,14 @@ describe('OpenRouter Agent SDK runtime gate', () => {
     expect(source).not.toContain('terminal');
   });
 
+  it('tells the model that tools only run when it emits the function call', () => {
+    const source = readRepoFile('supabase/functions/_shared/agent-runtime/openrouter-agent.ts');
+
+    expect(source).toContain('a tool runs ONLY when you emit a function call for it');
+    expect(source).toContain('Never report a dispatch, consultation, edit, search, or file change as done');
+    expect(source).toContain('${baseInstructions}${toolHonestyNote}');
+  });
+
   it('keeps Luca as one full agent runtime from the unified chat target picker', () => {
     const source = readRepoFile('src/pages/ChatView.tsx');
     const modesDropdown = readRepoFile('src/components/composer/ModesDropdown.tsx');

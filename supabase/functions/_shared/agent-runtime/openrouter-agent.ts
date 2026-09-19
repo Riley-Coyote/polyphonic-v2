@@ -237,9 +237,15 @@ async function runOpenRouterAgentSdkTurn(
   });
 
   const { instructions: baseInstructions, input } = splitInstructions(options.messages);
+  // Luca has been observed narrating tool use ("I've dispatched a subagent",
+  // "I reached out to Anima") without emitting the call: the turn ends cleanly
+  // with tool_call_count 0 and nothing downstream fires. State the contract
+  // plainly on every SDK turn.
+  const toolHonestyNote =
+    "\n\nTool use in this runtime is literal: a tool runs ONLY when you emit a function call for it. Describing an action in prose (\"I've dispatched a subagent\", \"I'm reaching out to Anima\", \"let me edit that image\") executes nothing. If you intend to use a tool, call it first and write afterward. Never report a dispatch, consultation, edit, search, or file change as done unless the tool result for it came back in this turn; if it did not, say plainly that it has not happened yet. Visible effects (the Anima side panel, a background subagent, a new or edited image) exist only after the tool returns ok.";
   const instructions = options.requireImageGeneration
-    ? `${baseInstructions}\n\nThis turn is an explicit raster-image request. You MUST call generate_image exactly once before replying. Write the tool's prompt yourself as a detailed visual interpretation of the user's intent; do not copy the user's message verbatim. Only say the image was generated when the tool result contains an image URL.`
-    : baseInstructions;
+    ? `${baseInstructions}${toolHonestyNote}\n\nThis turn is an explicit raster-image request. You MUST call generate_image exactly once before replying. Write the tool's prompt yourself as a detailed visual interpretation of the user's intent; do not copy the user's message verbatim. Only say the image was generated when the tool result contains an image URL.`
+    : `${baseInstructions}${toolHonestyNote}`;
   const toolCalls = new Map<string, RuntimeToolCall>();
   const toolResults = new Map<string, RuntimeToolResult>();
   const startedToolCalls = new Set<string>();
