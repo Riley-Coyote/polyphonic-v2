@@ -1,15 +1,15 @@
 # Fix Luca image prompt routing
 
 ## What is happening
-Image requests are deliberately excluded from Luca’s newer agent runtime. They fall into an older deterministic shortcut that sends the latest user message directly to image generation, so Luca never gets the chance to author the visual prompt shown in the conversation.
+Image requests are deliberately excluded from Lucas newer agent runtime. They fall into an older shortcut that sends your raw message straight to image generation, so Luca never gets to write the visual prompt they describe in the conversation.
 
 ## Changes
-- Route image requests through the newer agent runtime when extended tools are enabled for that user.
-- Keep the existing deterministic shortcut unchanged for users who do not have the extended image tools.
-- Add regression coverage proving allowlisted requests use Luca’s `generate_image` tool while non-allowlisted requests retain the existing path.
-- Deploy only `chat-multi`, then verify the affected account can generate from Luca-authored tool arguments.
+- Turn the extended abilities on for everyone and remove the per-account allowlist, so there is one code path instead of two.
+- Let image requests run through the newer runtime, where Luca writes the actual image prompt.
+- Keep the older shortcut only as the fallback for accounts whose runtime cannot offer image tools at all.
+- Add regression coverage for the new routing, then deploy only the chat function and verify a real image request.
 
 ## Technical detail
-- Import and use the existing `isExtendedRuntimeToolsEnabled(userId)` gate in `chat-multi`.
-- Narrow the `likelyGeneratedMediaRequest` exclusion so it applies only when the newer runtime cannot expose image tools.
-- Do not change the image provider, image function, frontend, database, or global rollout settings.
+- Remove the allowlist branch from the extended-tools gate and default it on.
+- Narrow the image-request exclusion in chat-multi so it no longer blocks the agent runtime.
+- No change to the image provider, image functions, frontend, or database.
