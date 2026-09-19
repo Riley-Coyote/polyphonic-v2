@@ -102,7 +102,12 @@ describe('image pipeline integration guards', () => {
   it('persists generated images as attachments so they render inline', () => {
     expect(runtime).toContain('function buildMediaAttachments(');
     expect(runtime).toContain('buildMediaAttachments(toolCalls, toolResults)');
+    expect(runtime).toContain('parsed?.ok === true && parsed?.result');
     expect(runtime).toContain('mediaAttachments.length > 0 ? { attachments: mediaAttachments }');
+    expect(runtime).toContain('attachments: mediaAttachments');
+    expect(chat).toContain('requireImageGeneration: looksLikeDirectImageGenerationRequest(messageWithAttachments)');
+    expect(runtime).toContain('You MUST call generate_image exactly once before replying');
+    expect(runtime).toContain('{ type: "function" as const, name: "generate_image" }');
   });
 
   it('uses the dedicated OpenRouter Images API and preserves OpenAI generation', () => {

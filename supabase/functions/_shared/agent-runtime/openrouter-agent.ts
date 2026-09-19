@@ -52,6 +52,7 @@ export interface OpenRouterAgentRuntimeOptions {
   corsHeaders: Record<string, string>;
   requestId: string;
   idempotencyKey?: string | null;
+  requireImageGeneration?: boolean;
 }
 
 interface RuntimeToolCall {
@@ -235,7 +236,10 @@ async function runOpenRouterAgentSdkTurn(
     appTitle: "Polyphonic",
   });
 
-  const { instructions, input } = splitInstructions(options.messages);
+  const { instructions: baseInstructions, input } = splitInstructions(options.messages);
+  const instructions = options.requireImageGeneration
+    ? `${baseInstructions}\n\nThis turn is an explicit raster-image request. You MUST call generate_image exactly once before replying. Write the tool's prompt yourself as a detailed visual interpretation of the user's intent; do not copy the user's message verbatim. Only say the image was generated when the tool result contains an image URL.`
+    : baseInstructions;
   const toolCalls = new Map<string, RuntimeToolCall>();
   const toolResults = new Map<string, RuntimeToolResult>();
   const startedToolCalls = new Set<string>();
@@ -257,6 +261,11 @@ async function runOpenRouterAgentSdkTurn(
     instructions,
     input: input as any,
     tools: runtimeTools,
+    toolChoice: options.requireImageGeneration
+      ? (context) => context.numberOfTurns === 0
+        ? { type: "function" as const, name: "generate_image" }
+        : "auto" as const
+      : "auto" as const,
     stopWhen: [
       stepCountIs(getNumberEnv("OPENROUTER_AGENT_SDK_MAX_STEPS", DEFAULT_MAX_AGENT_STEPS)),
       maxCost(getNumberEnv("OPENROUTER_AGENT_SDK_MAX_COST_USD", DEFAULT_MAX_AGENT_COST_USD)),
@@ -468,6 +477,7 @@ async function runOpenRouterAgentSdkTurn(
     tokens_used: tokensUsed,
     tool_call_count: toolCalls.size,
     message_id: insertedMessage?.id ?? null,
+    attachments: mediaAttachments,
   };
 
   if (options.idempotencyKey) {
@@ -944,6 +954,9 @@ function buildMediaAttachments(
     let parsed: any = result.output;
     if (typeof parsed === "string") {
       try { parsed = JSON.parse(parsed); } catch { continue; }
+    }
+    if (parsed?.ok === true && parsed?.result && typeof parsed.result === "object") {
+      parsed = parsed.result;
     }
     const url = parsed?.image_url;
     if (typeof url !== "string" || url.length === 0) continue;

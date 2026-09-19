@@ -2430,6 +2430,7 @@ export default function ChatView() {
                   thinking_content: fullThinking || null,
                   tokens_used: data.tokens_used || null,
                   bookmarked: false,
+                  attachments: Array.isArray(data.attachments) ? data.attachments : null,
                   // Store variants as extra metadata on the message object (legacy convenience)
                   ...(collectedVariants.length > 0 ? { variants: collectedVariants } : {}),
                   metadata: {
