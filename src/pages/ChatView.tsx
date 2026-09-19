@@ -6,6 +6,8 @@ import { ChatTargetPicker, type ChatTarget } from '@/components/composer/ChatTar
 import { ObserverEyeChip } from '@/components/composer/ObserverEyeChip';
 import ModesDropdown from '@/components/composer/ModesDropdown';
 import DictationButton from '@/components/composer/DictationButton';
+import Composer from '@/components/composer/Composer';
+import EffortControl from '@/components/composer/EffortControl';
 import VoiceModeButton from '@/components/voice/VoiceModeButton';
 import { LiveCallOverlay } from '@/components/voice/LiveCallOverlay';
 import { speak, stopSpeaking } from '@/lib/voicePlayback';
@@ -500,6 +502,23 @@ function FreshMsgRow({ children, className = 'msg-row', style }: {
 }
 
 /* ─── Main ChatView ─── */
+
+/**
+ * Does this browser auto-size a textarea from its content? Cached once: the
+ * answer cannot change for the life of the page, and the composer asks on
+ * every keystroke.
+ */
+let fieldSizingSupport: boolean | null = null;
+function supportsFieldSizing(): boolean {
+  if (fieldSizingSupport === null) {
+    fieldSizingSupport =
+      typeof CSS !== 'undefined' &&
+      typeof CSS.supports === 'function' &&
+      CSS.supports('field-sizing', 'content');
+  }
+  return fieldSizingSupport;
+}
+
 type FirstTurnHandoff = {
   id: string;
   text: string;
@@ -791,7 +810,6 @@ export default function ChatView() {
   const guardianAbortRef = useRef<AbortController | null>(null);
   const inputCaptureRef = useRef('');
   const sendInFlightRef = useRef(false);
-  const composerSendTimeoutRef = useRef<number | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const photoInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
@@ -825,14 +843,6 @@ export default function ChatView() {
     setGuideOpen(true);
     navigate(threadId ? `/chat/${threadId}?guide=1` : '/chat?guide=1', { replace: true });
   }, [navigate, setGuideOpen, threadId]);
-
-  useEffect(() => {
-    return () => {
-      if (composerSendTimeoutRef.current) {
-        window.clearTimeout(composerSendTimeoutRef.current);
-      }
-    };
-  }, []);
 
   useEffect(() => {
     // Access tier isn't known until the model-key probe resolves. Wait until
@@ -1448,6 +1458,12 @@ export default function ChatView() {
   }, [user, activeAgentId, currentAgentLabel, classicChatActive, selectedChatModel]);
 
   const handleTextareaInput = () => {
+    // `field-sizing: content` does this natively and keeps the height off the
+    // keystroke hot path. Where it exists we must NOT also write an inline
+    // height, or the two fight over the same property. Everywhere else the
+    // original measure-and-clamp runs, with the single 240px clamp the CSS
+    // also declares (--cmp-max-height).
+    if (supportsFieldSizing()) return;
     const ta = textareaRef.current;
     if (!ta) return;
     // Measure target height without thrashing layout twice if it hasn't
@@ -1996,16 +2012,45 @@ export default function ChatView() {
     persistChatTarget(requestRuntimeMode === 'classic'
       ? { kind: 'model', id: requestModel }
       : { kind: 'agent', id: requestAgentId });
-    setComposerSending(true);
-    if (composerSendTimeoutRef.current) {
-      window.clearTimeout(composerSendTimeoutRef.current);
-    }
-    composerSendTimeoutRef.current = window.setTimeout(() => {
-      setComposerSending(false);
-      composerSendTimeoutRef.current = null;
-    }, 720);
-
     const isFirstTurn = !hiddenHandoff && !currentThreadId && messages.length === 0 && !options?.text;
+
+    /* ── THE SEND MOMENT ──────────────────────────────────────────────
+       Everything the eye needs happens here, before the first `await`:
+       your message is on screen, the box is empty, and the reply
+       placeholder is mounted. The database round trip that follows is
+       bookkeeping — it must never be something you wait to see.
+
+       The optimistic row carries a client-side id and is inserted under
+       that SAME id, so there is no swap: threadStore.addMessage returns
+       early on a duplicate id, and mergeRealtimeMessage keeps the row
+       already present. Failure keeps the row and marks it; it never
+       erases what you wrote. */
+    const optimisticThreadId = currentThreadId;
+    const optimisticId = crypto.randomUUID();
+    const useOptimisticRow = !hiddenHandoff && !isFirstTurn && !!optimisticThreadId;
+    const shouldClearComposer = hiddenHandoff || !options?.text || options.text === input;
+    const clearComposer = () => {
+      setInput('');
+      clearAttachments();
+      uploadBatchIdRef.current = crypto.randomUUID();
+      setAttachmentError(null);
+      if (textareaRef.current) textareaRef.current.style.height = 'auto';
+    };
+    const markOptimisticRowFailed = (detail: string) => {
+      if (!useOptimisticRow) return;
+      patchMessage(optimisticId, {
+        metadata: {
+          client_turn_id: clientTurnId,
+          idempotency_key: `chat:${optimisticThreadId}:${clientTurnId}`,
+          access_tier: accessTier,
+          send_failed: true,
+          send_error: detail,
+        },
+      } as Partial<Message>);
+    };
+
+    setComposerSending(true);
+
     if (isFirstTurn) {
       setFirstTurnHandoff({
         id: crypto.randomUUID(),
@@ -2016,6 +2061,38 @@ export default function ChatView() {
       });
       setInput('');
       if (textareaRef.current) textareaRef.current.style.height = 'auto';
+    } else if (useOptimisticRow) {
+      addMessage({
+        id: optimisticId,
+        thread_id: optimisticThreadId!,
+        user_id: user.id,
+        role: 'user',
+        content: messageText,
+        model: null,
+        agent: null,
+        thinking_content: null,
+        tokens_used: null,
+        bookmarked: false,
+        attachment_ids: [],
+        attachments: replayAttachments ?? null,
+        metadata: {
+          client_turn_id: clientTurnId,
+          idempotency_key: `chat:${optimisticThreadId}:${clientTurnId}`,
+          access_tier: accessTier,
+        },
+      } as any);
+      if (shouldClearComposer) clearComposer();
+    }
+
+    // Mount the reply placeholder in the same tick, so the most anxious
+    // window — did it hear me? — is never the silent one.
+    if (!hiddenHandoff) {
+      completedStreamMessageIdRef.current = null;
+      setStreaming(true);
+      setStreamingContent('');
+      setStreamingThinking('');
+      setStreamingVariants([]);
+      setIsSynthesizing(false);
     }
 
     let tid = currentThreadId;
@@ -2032,6 +2109,8 @@ export default function ChatView() {
         activeClientTurnIdRef.current = null;
         activeSendTargetRef.current = null;
         setFirstTurnHandoff(null);
+        setComposerSending(false);
+        setStreaming(false);
         if (isFirstTurn && !options?.text) setInput(sourceText);
         setAttachmentError(err instanceof Error ? err.message : 'Could not start a new conversation');
         return;
@@ -2048,6 +2127,11 @@ export default function ChatView() {
       activeClientTurnIdRef.current = null;
       activeSendTargetRef.current = null;
       setFirstTurnHandoff(null);
+      setComposerSending(false);
+      setStreaming(false);
+      // The row is already on screen — mark it rather than deleting what the
+      // person wrote (MESSAGING_FEEL_AUDIT P4: failures must not self-erase).
+      markOptimisticRowFailed(err instanceof Error ? err.message : 'Attachment upload failed');
       if (isFirstTurn && !options?.text) setInput(sourceText);
       setAttachmentError(err instanceof Error ? err.message : 'Attachment upload failed');
       return;
@@ -2092,6 +2176,10 @@ export default function ChatView() {
     if (!hiddenHandoff) {
       try {
         const inserted = await insertMessageWithFreshSession({
+          // Same id the optimistic row already carries, so the persisted row
+          // IS that row — addMessage returns early on a duplicate id and
+          // realtime keeps the one already present. No swap, no flicker.
+          ...(useOptimisticRow ? { id: optimisticId } : {}),
           thread_id: tid,
           user_id: user.id,
           role: 'user',
@@ -2110,8 +2198,14 @@ export default function ChatView() {
         activeClientTurnIdRef.current = null;
         activeSendTargetRef.current = null;
         setFirstTurnHandoff(null);
+        setComposerSending(false);
+        setStreaming(false);
         if (isFirstTurn && !options?.text) setInput(sourceText);
         const detail = insertUserError instanceof Error ? insertUserError.message : String(insertUserError);
+        // The row stays where it is, marked — the retry card below carries
+        // `retry_text`, so nothing the person wrote is ever lost. The composer
+        // is NOT refilled: a half-restored box is worse than an honest failure.
+        markOptimisticRowFailed(detail);
         const authExpired = isMessagePersistenceAuthError(insertUserError);
         addMessage({
           thread_id: tid, user_id: user.id, role: 'assistant',
@@ -2131,20 +2225,26 @@ export default function ChatView() {
         return;
       }
 
-      addMessage({
-        ...persistedUserMessage!,
-        attachment_ids: uploadedAttachmentIds,
-        attachments: uploadedAttachments.length > 0 ? uploadedAttachments : null,
-      } as Message);
+      if (useOptimisticRow) {
+        // The row is already on screen under this id; only the attachment
+        // payload the upload produced is new.
+        patchMessage(optimisticId, {
+          attachment_ids: uploadedAttachmentIds,
+          attachments: uploadedAttachments.length > 0 ? uploadedAttachments : null,
+        } as Partial<Message>);
+      } else {
+        addMessage({
+          ...persistedUserMessage!,
+          attachment_ids: uploadedAttachmentIds,
+          attachments: uploadedAttachments.length > 0 ? uploadedAttachments : null,
+        } as Message);
+      }
     }
     setFirstTurnHandoff(null);
+    setComposerSending(false);
 
-    if (hiddenHandoff || !options?.text || options.text === input) {
-      setInput('');
-      clearAttachments();
-      uploadBatchIdRef.current = crypto.randomUUID();
-      setAttachmentError(null);
-      if (textareaRef.current) textareaRef.current.style.height = 'auto';
+    if (!useOptimisticRow && shouldClearComposer) {
+      clearComposer();
     }
 
     if (createdThread) {
@@ -2155,13 +2255,16 @@ export default function ChatView() {
       navigate(`/chat/${tid}`, { replace: true });
     }
 
-    // Stream response
-    completedStreamMessageIdRef.current = null;
-    setStreaming(true);
-    setStreamingContent('');
-    setStreamingThinking('');
-    setStreamingVariants([]);
-    setIsSynthesizing(false);
+    // Stream response. The placeholder already mounted in the send moment
+    // above; this only covers the hidden-handoff path, which has no composer.
+    if (hiddenHandoff) {
+      completedStreamMessageIdRef.current = null;
+      setStreaming(true);
+      setStreamingContent('');
+      setStreamingThinking('');
+      setStreamingVariants([]);
+      setIsSynthesizing(false);
+    }
 
     const controller = new AbortController();
     abortRef.current = controller;
@@ -2515,7 +2618,7 @@ export default function ChatView() {
       activeSendTargetRef.current = null;
       loadThreads();
     }
-  }, [input, modelKeyMissing, pendingAttachments.length, attachmentSendBlocked, user, currentThreadId, messages.length, isStreaming, firstTurnHandoff, currentResponderLabel, createThread, navigate, thinkingEffort, ensembleActive, effectiveRuntimeMode, selectedChatModel, memoryEnabled, byokEnabled, accessTier, activeAgentId, agentNameById, persistChatTarget, landingAutosend, sidebarVisible, alcoveOpen, loadMessages, loadArtifacts, addLocalArtifacts, uploadPendingAttachments, addMessage, clearAttachments, loadThreads]);
+  }, [input, modelKeyMissing, pendingAttachments.length, attachmentSendBlocked, user, currentThreadId, messages.length, isStreaming, firstTurnHandoff, currentResponderLabel, createThread, navigate, thinkingEffort, ensembleActive, effectiveRuntimeMode, selectedChatModel, memoryEnabled, byokEnabled, accessTier, activeAgentId, agentNameById, persistChatTarget, landingAutosend, sidebarVisible, alcoveOpen, loadMessages, loadArtifacts, addLocalArtifacts, uploadPendingAttachments, addMessage, patchMessage, clearAttachments, loadThreads]);
   // Keep the prefill listener pointed at the latest sendMessage closure.
   useEffect(() => { sendMessageRef.current = sendMessage; }, [sendMessage]);
 
@@ -2650,6 +2753,12 @@ export default function ChatView() {
   }, [guardianStreaming, streamingContent, streamingThinking, currentThreadId, user, activeMessageAgent, addMessage]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
+    // IME guard. While an input method is composing, Enter commits the
+    // candidate — it is not a send. Without this a Japanese/Chinese/Korean
+    // writer cannot finish a word without firing the message. `keyCode 229`
+    // covers the browsers that do not set `isComposing`.
+    const native = e.nativeEvent as KeyboardEvent;
+    if (native?.isComposing || native?.keyCode === 229) return;
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       // Stop dictation cleanly when the message goes out so the next
@@ -2722,6 +2831,39 @@ export default function ChatView() {
   const isFirstTurnHandoff = !!displayFirstTurnHandoff && messages.length === 0 && !isStreaming;
   const landingHandoffPending = landingThreadEnter && messages.length === 0 && !isStreaming;
   const isEmpty = !threadId && messages.length === 0 && !isStreaming && !displayFirstTurnHandoff && !landingHandoffPending;
+  /* The send affordance arms only with content, and only when nothing blocks
+     the send. It is the exact inverse of the old button's `disabled`, kept in
+     one place now that two call sites render the same circle. */
+  const composerStreaming = isStreaming || guardianStreaming;
+  const composerSendArmed = !composerStreaming && (
+    alcoveOpen
+      ? (!modelKeyMissing && !!input.trim())
+      : (!displayFirstTurnHandoff
+        && !modelKeyMissing
+        && !attachmentSendBlocked
+        && (!!input.trim() || pendingAttachments.length > 0))
+  );
+  const composerSendLabel = composerStreaming
+    ? 'Stop response'
+    : attachmentSendBlocked
+      ? 'Files are still processing'
+      : alcoveOpen
+        ? 'Send observer message'
+        : 'Send message';
+  const composerCollapsed =
+    isMobile && !focused && !input.trim() && pendingAttachments.length === 0 && !attachmentMenuOpen;
+  const handleComposerSend = () => {
+    if (dictationListening) stopDictation();
+    if (alcoveOpen) {
+      void sendGuardianMessage();
+    } else {
+      void sendMessage();
+    }
+  };
+  const handleComposerFocusChange = (next: boolean) => {
+    if (next) setFocused(true);
+    else if (!alcoveOpen) setFocused(false);
+  };
   const activeStreamBody = streamingContent || lingeringStream || '';
   const activeStreamNorm = normalizeStreamComparableContent(activeStreamBody);
 
@@ -2821,12 +2963,94 @@ export default function ChatView() {
             </div>
           )}
 
-          {/* Composer — sits with the hero as one welcome group.
-              maxWidth + alignItems:stretch so the input-shell fills the
-              wrapper instead of shrinking to its (now smaller) footer
-              content after the modes consolidation. */}
-          <div className="chat-empty-composer" style={{ animation: 'viewFadeIn 0.6s var(--ease-out) 0.2s both', width: '100%', maxWidth: 720, display: 'flex', flexDirection: 'column', alignItems: 'stretch' }}>
-            <div className={`input-shell${focused ? ' focused' : ''}${alcoveOpen ? ' alcove-active' : ''}${composerSending ? ' sending-turn' : ''}${attachmentMenuOpen ? ' attachment-menu-open' : ''}${isMobile && !focused && !input.trim() && pendingAttachments.length === 0 && !attachmentMenuOpen ? ' composer-collapsed' : ''}`}>
+          {/* Composer — sits with the hero as one welcome group. The
+              composer owns its own measure (--thread-measure), so this
+              wrapper only carries the entrance and the stretch. */}
+          <div className="chat-empty-composer" style={{ animation: 'viewFadeIn 0.6s var(--ease-out) 0.2s both', width: '100%', display: 'flex', flexDirection: 'column', alignItems: 'stretch' }}>
+            <Composer
+              value={input}
+              onChange={(next) => { setInput(next); handleTextareaInput(); }}
+              onSend={handleComposerSend}
+              onStop={() => { void stopStreaming(); }}
+              streaming={composerStreaming}
+              sending={composerSending}
+              armed={composerSendArmed}
+              disabled={modelKeyMissing}
+              disabledReason={attachmentSendBlocked ? 'Wait for files to finish processing' : undefined}
+              ariaLabel={alcoveOpen ? 'Ask Observer' : classicChatActive ? `Message ${getChatModelLabel(selectedChatModel)}` : 'Message Luca'}
+              sendLabel={composerSendLabel}
+              placeholder={alcoveOpen ? 'Ask the Observer...' : modelKeyMissing ? 'Add a model key to start chatting…' : ensembleActive ? 'Message Luca (ensemble)\u2026' : dynamicPlaceholder}
+              textareaRef={textareaRef}
+              onKeyDown={handleKeyDown}
+              onPaste={handleComposerPaste}
+              onFocusChange={handleComposerFocusChange}
+              collapsed={composerCollapsed}
+              onBarMouseDown={(e) => { if (isMobile) e.preventDefault(); }}
+              leading={!alcoveOpen ? (
+                <AttachmentSourceControl
+                  open={attachmentMenuOpen}
+                  onOpenChange={setAttachmentMenuOpen}
+                  onFiles={openAttachmentFilePicker}
+                  onPhotos={openPhotoPicker}
+                  onCamera={openCameraPicker}
+                />
+              ) : null}
+              above={(
+                <>
+                  {!classicChatActive && renderObserverAlcove()}
+                  {!alcoveOpen && renderModelKeyNotice()}
+                  {!alcoveOpen && renderPendingAttachments()}
+                </>
+              )}
+              barLeft={(
+                <div className="agent-pills">
+                  {!isMobile && renderGuestStatusChip()}
+                  {!isMobile && !classicChatActive && (
+                    <ObserverEyeChip
+                      threadId={currentThreadId}
+                      open={alcoveOpen}
+                      onToggle={() => setAlcoveOpen((v) => !v)}
+                    />
+                  )}
+                  {!alcoveOpen && byokEnabled && activeAgentId === 'luca' && (
+                    <>
+                      <div className="pill-sep" />
+                      <ModesDropdown
+                        ensembleArmed={ensembleArmed}
+                        ensembleLocked={ensembleLocked}
+                        onToggleEnsemble={toggleEnsemble}
+                        isMobile={isMobile}
+                      />
+                    </>
+                  )}
+                </div>
+              )}
+              barRight={(
+                <div className="composer-actions">
+                  {!isMobile && (
+                    <EffortControl
+                      value={effectiveThinkingEffort}
+                      options={supportedReasoningEfforts}
+                      onChange={(next) => { if (next !== 'max') setThinkingEffort(next); }}
+                      disabled={reasoningEffortFixed}
+                      disabledTitle={`${getChatModelLabel(selectedChatModel)} currently requires ${getReasoningEffortLabel(effectiveThinkingEffort)} reasoning`}
+                    />
+                  )}
+                  <DictationButton
+                    isListening={dictationListening}
+                    supported={dictationSupported}
+                    disabled={modelKeyMissing || isStreaming || guardianStreaming}
+                    onClick={toggleDictation}
+                  />
+                  {!isMobile && (
+                    <VoiceModeButton
+                      disabled={modelKeyMissing || isStreaming || guardianStreaming}
+                      onStartLiveCall={() => setLiveCallOpen(true)}
+                    />
+                  )}
+                </div>
+              )}
+            >
               <input
                 ref={fileInputRef}
                 type="file"
@@ -2864,118 +3088,7 @@ export default function ChatView() {
                   event.currentTarget.value = '';
                 }}
               />
-              {!classicChatActive && renderObserverAlcove()}
-              {!alcoveOpen && renderModelKeyNotice()}
-              {!alcoveOpen && renderPendingAttachments()}
-              <div className="input-row">
-                <textarea
-                  ref={textareaRef}
-                  onPaste={handleComposerPaste}
-                  className="input-textarea"
-                  enterKeyHint="send"
-                  autoCapitalize="sentences"
-                  autoCorrect="on"
-                  spellCheck={true}
-                  aria-label={alcoveOpen ? 'Ask Observer' : classicChatActive ? `Message ${getChatModelLabel(selectedChatModel)}` : 'Message Luca'}
-                  value={input}
-                  onChange={(e) => { setInput(e.target.value); handleTextareaInput(); }}
-                  onFocus={() => setFocused(true)}
-                  onBlur={() => { if (!alcoveOpen) setFocused(false); }}
-                  onKeyDown={handleKeyDown}
-                  rows={1}
-                  placeholder={alcoveOpen ? 'Ask the Observer...' : modelKeyMissing ? 'Add a model key to start chatting…' : ensembleActive ? 'Message Luca (ensemble)\u2026' : dynamicPlaceholder}
-                />
-              </div>
-              <div className="input-footer" onMouseDown={(e) => { if (isMobile) e.preventDefault(); }}>
-                <div className="agent-pills">
-                  {!alcoveOpen && (
-                    <AttachmentSourceControl
-                      open={attachmentMenuOpen}
-                      onOpenChange={setAttachmentMenuOpen}
-                      onFiles={openAttachmentFilePicker}
-                      onPhotos={openPhotoPicker}
-                      onCamera={openCameraPicker}
-                    />
-                  )}
-                  {!isMobile && renderGuestStatusChip()}
-                  {!isMobile && !classicChatActive && (
-                    <ObserverEyeChip
-                      threadId={currentThreadId}
-                      open={alcoveOpen}
-                      onToggle={() => setAlcoveOpen((v) => !v)}
-                    />
-                  )}
-                  {!alcoveOpen && byokEnabled && activeAgentId === 'luca' && (
-                    <>
-                      <div className="pill-sep" />
-                      <ModesDropdown
-                        ensembleArmed={ensembleArmed}
-                        ensembleLocked={ensembleLocked}
-                        onToggleEnsemble={toggleEnsemble}
-                        isMobile={isMobile}
-                      />
-                    </>
-                  )}
-                </div>
-                <div className="composer-actions">
-                  {!isMobile && (
-                    <select
-                      aria-label="Thinking effort"
-                      value={effectiveThinkingEffort}
-                      disabled={reasoningEffortFixed}
-                      title={reasoningEffortFixed ? `${getChatModelLabel(selectedChatModel)} currently requires Max reasoning` : undefined}
-                      onChange={(e) => {
-                        const next = e.target.value as ReasoningEffort;
-                        if (next !== 'max') setThinkingEffort(next);
-                      }}
-                      className="effort-select"
-                    >
-                      {supportedReasoningEfforts.map((effort) => (
-                        <option key={effort} value={effort}>{getReasoningEffortLabel(effort)}</option>
-                      ))}
-                    </select>
-                  )}
-                  <DictationButton
-                    isListening={dictationListening}
-                    supported={dictationSupported}
-                    disabled={modelKeyMissing || isStreaming || guardianStreaming}
-                    onClick={toggleDictation}
-                  />
-                  {!isMobile && (
-                    <VoiceModeButton
-                      disabled={modelKeyMissing || isStreaming || guardianStreaming}
-                      onStartLiveCall={() => setLiveCallOpen(true)}
-                    />
-                  )}
-                  <button
-                    type="button"
-                    aria-label={isStreaming || guardianStreaming ? 'Stop response' : attachmentSendBlocked ? 'Files are still processing' : alcoveOpen ? 'Send observer message' : 'Send message'}
-                    title={attachmentSendBlocked ? 'Wait for files to finish processing' : undefined}
-                    className={`send-btn${isStreaming || guardianStreaming ? ' streaming' : ''}${(!isStreaming && !guardianStreaming && !modelKeyMissing && !attachmentSendBlocked && (input.trim() || pendingAttachments.length > 0)) ? ' armed' : ''}${ensembleActive && !alcoveOpen ? ' ensemble-armed' : ''}`}
-                    onClick={() => {
-                      if (isStreaming || guardianStreaming) {
-                        void stopStreaming();
-                        return;
-                      }
-                      if (dictationListening) stopDictation();
-                      if (alcoveOpen) {
-                        void sendGuardianMessage();
-                      } else {
-                        void sendMessage();
-                      }
-                    }}
-                    disabled={!(isStreaming || guardianStreaming) && (alcoveOpen ? (modelKeyMissing || !input.trim()) : (!!displayFirstTurnHandoff || modelKeyMissing || attachmentSendBlocked || (!input.trim() && pendingAttachments.length === 0)))}
-                  >
-                    <span className="send-icon">
-                      <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth={1.2} strokeLinecap="round" strokeLinejoin="round">
-                        <path d="M12.5 1.5 L1.5 6.3 L5.6 8 L7.4 12.3 Z" />
-                        <path d="M12.5 1.5 L5.6 8" />
-                      </svg>
-                    </span>
-                  </button>
-                </div>
-              </div>
-            </div>
+            </Composer>
           </div>
 
           {/* Quiet landing footer — a daily wisdom quote (with its author) on
@@ -3465,7 +3578,90 @@ export default function ChatView() {
 
       {/* Input zone */}
       <div className="input-zone">
-        <div className={`input-shell${focused ? ' focused' : ''}${alcoveOpen ? ' alcove-active' : ''}${composerSending ? ' sending-turn' : ''}${attachmentMenuOpen ? ' attachment-menu-open' : ''}${isMobile && !focused && !input.trim() && pendingAttachments.length === 0 && !attachmentMenuOpen ? ' composer-collapsed' : ''}`}>
+        <Composer
+          value={input}
+          onChange={(next) => { setInput(next); handleTextareaInput(); }}
+          onSend={handleComposerSend}
+          onStop={() => { void stopStreaming(); }}
+          streaming={composerStreaming}
+          sending={composerSending}
+          armed={composerSendArmed}
+          disabled={modelKeyMissing}
+          disabledReason={attachmentSendBlocked ? 'Wait for files to finish processing' : undefined}
+          ariaLabel={alcoveOpen ? 'Ask Observer' : classicChatActive ? `Message ${getChatModelLabel(selectedChatModel)}` : 'Message Luca'}
+          sendLabel={composerSendLabel}
+          placeholder={alcoveOpen ? (modelKeyMissing ? 'Add a model key to ask Observer…' : 'Ask the Observer...') : modelKeyMissing ? 'Add a model key to continue…' : ensembleActive ? 'Message Luca (ensemble)\u2026' : dynamicPlaceholder}
+          textareaRef={textareaRef}
+          onKeyDown={handleKeyDown}
+          onPaste={handleComposerPaste}
+          onFocusChange={handleComposerFocusChange}
+          collapsed={composerCollapsed}
+          onBarMouseDown={(e) => { if (isMobile) e.preventDefault(); }}
+          leading={!alcoveOpen ? (
+            <AttachmentSourceControl
+              open={attachmentMenuOpen}
+              onOpenChange={setAttachmentMenuOpen}
+              onFiles={openAttachmentFilePicker}
+              onPhotos={openPhotoPicker}
+              onCamera={openCameraPicker}
+            />
+          ) : null}
+          above={(
+            <>
+              {!classicChatActive && renderObserverAlcove()}
+              {!alcoveOpen && renderModelKeyNotice()}
+              {!alcoveOpen && renderPendingAttachments()}
+            </>
+          )}
+          barLeft={(
+            <div className="agent-pills">
+              {!isMobile && renderGuestStatusChip()}
+              {!isMobile && !classicChatActive && (
+                <ObserverEyeChip
+                  threadId={currentThreadId}
+                  open={alcoveOpen}
+                  onToggle={() => setAlcoveOpen((v) => !v)}
+                />
+              )}
+              {!alcoveOpen && byokEnabled && activeAgentId === 'luca' && (
+                <>
+                  <div className="pill-sep" />
+                  <ModesDropdown
+                    ensembleArmed={ensembleArmed}
+                    ensembleLocked={ensembleLocked}
+                    onToggleEnsemble={toggleEnsemble}
+                    isMobile={isMobile}
+                  />
+                </>
+              )}
+            </div>
+          )}
+          barRight={(
+            <div className="composer-actions">
+              {!isMobile && (
+                <EffortControl
+                  value={effectiveThinkingEffort}
+                  options={supportedReasoningEfforts}
+                  onChange={(next) => { if (next !== 'max') setThinkingEffort(next); }}
+                  disabled={reasoningEffortFixed}
+                  disabledTitle={`${getChatModelLabel(selectedChatModel)} currently requires ${getReasoningEffortLabel(effectiveThinkingEffort)} reasoning`}
+                />
+              )}
+              <DictationButton
+                isListening={dictationListening}
+                supported={dictationSupported}
+                disabled={modelKeyMissing || isStreaming || guardianStreaming}
+                onClick={toggleDictation}
+              />
+              {!isMobile && (
+                <VoiceModeButton
+                  disabled={modelKeyMissing || isStreaming || guardianStreaming}
+                  onStartLiveCall={() => setLiveCallOpen(true)}
+                />
+              )}
+            </div>
+          )}
+        >
           <input
             ref={fileInputRef}
             type="file"
@@ -3503,130 +3699,7 @@ export default function ChatView() {
               event.currentTarget.value = '';
             }}
           />
-          {!classicChatActive && renderObserverAlcove()}
-
-          {!alcoveOpen && renderModelKeyNotice()}
-          {!alcoveOpen && renderPendingAttachments()}
-
-          {/* Textarea */}
-          <div className="input-row">
-            <textarea
-              ref={textareaRef}
-              onPaste={handleComposerPaste}
-              className="input-textarea"
-              enterKeyHint="send"
-              autoCapitalize="sentences"
-              autoCorrect="on"
-              spellCheck={true}
-              aria-label={alcoveOpen ? 'Ask Observer' : classicChatActive ? `Message ${getChatModelLabel(selectedChatModel)}` : 'Message Luca'}
-              value={input}
-              onChange={(e) => { setInput(e.target.value); handleTextareaInput(); }}
-              onFocus={() => setFocused(true)}
-              onBlur={() => { if (!alcoveOpen) setFocused(false); }}
-              onKeyDown={handleKeyDown}
-              rows={1}
-              placeholder={alcoveOpen ? (modelKeyMissing ? 'Add a model key to ask Observer…' : 'Ask the Observer...') : modelKeyMissing ? 'Add a model key to continue…' : ensembleActive ? 'Message Luca (ensemble)\u2026' : dynamicPlaceholder}
-            />
-          </div>
-
-          {/* Footer */}
-          <div className="input-footer" onMouseDown={(e) => { if (isMobile) e.preventDefault(); }}>
-            <div className="agent-pills">
-              {!alcoveOpen && (
-                <AttachmentSourceControl
-                  open={attachmentMenuOpen}
-                  onOpenChange={setAttachmentMenuOpen}
-                  onFiles={openAttachmentFilePicker}
-                  onPhotos={openPhotoPicker}
-                  onCamera={openCameraPicker}
-                />
-              )}
-              {!isMobile && renderGuestStatusChip()}
-              {!isMobile && !classicChatActive && (
-                <ObserverEyeChip
-                  threadId={currentThreadId}
-                  open={alcoveOpen}
-                  onToggle={() => setAlcoveOpen((v) => !v)}
-                />
-              )}
-              {!alcoveOpen && byokEnabled && activeAgentId === 'luca' && (
-                <>
-                  <div className="pill-sep" />
-                  <ModesDropdown
-                    ensembleArmed={ensembleArmed}
-                    ensembleLocked={ensembleLocked}
-                    onToggleEnsemble={toggleEnsemble}
-                    isMobile={isMobile}
-                  />
-                </>
-              )}
-            </div>
-
-            <div className="composer-actions">
-              {!isMobile && (
-                <select
-                  aria-label="Thinking effort"
-                  value={effectiveThinkingEffort}
-                  disabled={reasoningEffortFixed}
-                  title={reasoningEffortFixed ? `${getChatModelLabel(selectedChatModel)} currently requires Max reasoning` : undefined}
-                  onChange={(e) => {
-                    const next = e.target.value as ReasoningEffort;
-                    if (next !== 'max') setThinkingEffort(next);
-                  }}
-                  className="effort-select"
-                >
-                  {supportedReasoningEfforts.map((effort) => (
-                    <option key={effort} value={effort}>{getReasoningEffortLabel(effort)}</option>
-                  ))}
-                </select>
-              )}
-
-              <DictationButton
-                isListening={dictationListening}
-                supported={dictationSupported}
-                disabled={modelKeyMissing || isStreaming || guardianStreaming}
-                onClick={toggleDictation}
-              />
-
-              {!isMobile && (
-                <VoiceModeButton
-                  disabled={modelKeyMissing || isStreaming || guardianStreaming}
-                  onStartLiveCall={() => setLiveCallOpen(true)}
-                />
-              )}
-
-              <button
-                type="button"
-                aria-label={isStreaming || guardianStreaming ? 'Stop response' : attachmentSendBlocked ? 'Files are still processing' : alcoveOpen ? 'Send observer message' : 'Send message'}
-                title={attachmentSendBlocked ? 'Wait for files to finish processing' : undefined}
-                className={`send-btn${isStreaming || guardianStreaming ? ' streaming' : ''}${(!isStreaming && !guardianStreaming && !modelKeyMissing && !attachmentSendBlocked && (input.trim() || pendingAttachments.length > 0)) ? ' armed' : ''}${ensembleActive && !alcoveOpen ? ' ensemble-armed' : ''}`}
-                onClick={() => {
-                  if (isStreaming || guardianStreaming) {
-                    void stopStreaming();
-                    return;
-                  }
-                  if (dictationListening) stopDictation();
-                  if (alcoveOpen) {
-                    void sendGuardianMessage();
-                  } else {
-                    void sendMessage();
-                  }
-                }}
-                disabled={!(isStreaming || guardianStreaming) && (alcoveOpen ? (modelKeyMissing || !input.trim()) : (!!displayFirstTurnHandoff || modelKeyMissing || attachmentSendBlocked || (!input.trim() && pendingAttachments.length === 0)))}
-              >
-                <span className="send-icon">
-                  <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth={1.2} strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M12.5 1.5 L1.5 6.3 L5.6 8 L7.4 12.3 Z" />
-                    <path d="M12.5 1.5 L5.6 8" />
-                  </svg>
-                </span>
-                <span className="stop-icon">
-                  <svg viewBox="0 0 14 14" fill="currentColor"><rect x={3} y={3} width={8} height={8} rx={1.5} /></svg>
-                </span>
-              </button>
-            </div>
-          </div>
-        </div>
+        </Composer>
       </div>
       <AttachmentDropOverlay visible={isDragging} />
       <LiveCallOverlay

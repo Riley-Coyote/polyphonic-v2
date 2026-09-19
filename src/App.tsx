@@ -75,6 +75,13 @@ const MobilePreview = lazy(() => import("./pages/MobilePreview"));
 const MobileLivePreview = lazy(() => import("./pages/MobileLivePreview"));
 const StyleGallery = lazy(() => import("./pages/StyleGallery"));
 const ComposerGallery = lazy(() => import("./pages/ComposerGallery"));
+/* DEV-only composer state harness. The guard is on the `lazy()` itself, not
+   only on the route: `import.meta.env.DEV` is statically replaced with
+   `false` in a production build, so the dynamic import is folded away and
+   no harness chunk is emitted at all. */
+const ComposerHarness = import.meta.env.DEV
+  ? lazy(() => import("./dev/ComposerHarness"))
+  : null;
 const PublicProfileView = lazy(() => import("./pages/PublicProfileView"));
 const AgentsList = lazy(() => import("./pages/settings/AgentsList"));
 const AgentDetail = lazy(() => import("./pages/settings/AgentDetail"));
@@ -479,6 +486,9 @@ const App = () => (
                 <Route path="/_mobile-live" element={<MobileLivePreview />} />
                 <Route path="/_mockups/styles" element={<StyleGallery />} />
                 <Route path="/_mockups/composer" element={<ComposerGallery />} />
+                {import.meta.env.DEV && ComposerHarness && (
+                  <Route path="/__dev/composer" element={<ComposerHarness />} />
+                )}
                 <Route path="/dashboard" element={<Navigate to="/mind" replace />} />
                 {/* /notebook is the simplified vocabulary for /journal —
                     same view, same data, label adapts to the route. */}

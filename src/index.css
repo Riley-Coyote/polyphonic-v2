@@ -212,6 +212,45 @@
   --inset-gap:         6px;
   --devbar-height:     0px;
 
+  /* ─── Composer — the thin pill and the send moment ──────────────────
+     One shared measure for the reading column and the composer, so the
+     text you write and the text you read sit on the same axis.
+
+     The ink here is COOL on purpose: it is the one surface you look at
+     every time you speak, and the app's warm cream ladder reads as a tint
+     on a near-white fill. Everything else in the composer is an alpha on
+     white so it sits ON the canvas rather than beside it.
+
+     Arming and disarming are asymmetric, from the desktop app's
+     composer-states.css: granting an affordance can be gentle, taking one
+     away has to be quick or backspacing past the last character strobes
+     the button. Each duration is declared on the state being ENTERED. */
+  --thread-measure:     640px;
+  --cmp-radius:         22px;
+  --cmp-max-height:     240px;
+  --cmp-send-size:      34px;
+  --cmp-ctl-size:       28px;
+
+  --cmp-fill:           rgba(255, 255, 255, 0.032);
+  --cmp-fill-focus:     rgba(255, 255, 255, 0.045);
+  --cmp-hairline:       rgba(255, 255, 255, 0.06);
+  --cmp-hairline-hover: rgba(255, 255, 255, 0.10);
+  --cmp-hairline-focus: rgba(255, 255, 255, 0.18);
+  --cmp-lit-edge:       inset 0 1px 0 rgba(255, 255, 255, 0.06);
+
+  --cmp-ink:            rgba(243, 243, 245, 0.90);
+  --cmp-ink-muted:      rgba(208, 210, 216, 0.72);
+  --cmp-ink-faint:      rgba(150, 155, 164, 0.46);
+  --cmp-ink-ghost:      rgba(122, 127, 137, 0.30);
+
+  --cmp-plate-hover:    rgba(255, 255, 255, 0.05);
+  --cmp-plate-active:   rgba(255, 255, 255, 0.09);
+  --cmp-send-rest:      rgba(255, 255, 255, 0.06);
+  --cmp-focus-border:   rgba(255, 255, 255, 0.5);
+
+  --cmp-arm:            140ms;
+  --cmp-disarm:         90ms;
+
   /* Typography stack
      Switzer (Fontshare) is the primary grotesque — clean, warm, editorial-neutral.
      Instrument Serif is the accent face: italic stream/inner-life headings + the
@@ -687,38 +726,6 @@ html {
   overflow-wrap: break-word;
 }
 
-/* ── Thinking Effort Selector ── */
-.effort-select {
-  height: 28px;
-  padding: 0 22px 0 9px;
-  font-size: 11px;
-  font-family: var(--font-sans);
-  font-weight: 420;
-  letter-spacing: 0.03em;
-  color: var(--text-ghost);
-  background: transparent;
-  border: none;
-  border-radius: var(--radius-sm);
-  outline: none;
-  cursor: pointer;
-  appearance: none;
-  -webkit-appearance: none;
-  background-image: url("data:image/svg+xml,%3Csvg width='8' height='5' viewBox='0 0 8 5' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M1 1l3 3 3-3' stroke='%23555' stroke-width='1.2'/%3E%3C/svg%3E");
-  background-repeat: no-repeat;
-  background-position: right 8px center;
-  transition: border-color 150ms ease, color 150ms ease;
-}
-.effort-select:hover {
-  color: var(--text-tertiary);
-}
-.effort-select:focus {
-  color: var(--text-secondary);
-}
-.effort-select option {
-  background: var(--input-bg);
-  color: var(--text-primary);
-}
-
 
 @keyframes g-breathe { 0%, 100% { opacity: 0.4; } 50% { opacity: 0.8; } }
 
@@ -787,12 +794,6 @@ html {
   0% { opacity: 0; transform: translateY(22px); }
   52% { opacity: 0.9; }
   100% { opacity: 1; transform: translateY(0); }
-}
-
-@keyframes composerSendSettle {
-  0% { transform: translateY(0); border-color: rgba(232, 230, 224, 0.12); }
-  42% { transform: translateY(2px); border-color: rgba(232, 230, 224, 0.18); }
-  100% { transform: translateY(0); border-color: rgba(220, 219, 216, 0.09); }
 }
 
 @keyframes chatThreadReveal {
@@ -1091,7 +1092,7 @@ html {
 .input-zone {
   flex-shrink: 0;
   padding: 16px 32px 20px;
-  max-width: calc(var(--message-max-width) + 64px);
+  max-width: calc(var(--thread-measure) + 64px);
   margin: 0 auto;
   width: 100%;
   position: relative;
@@ -1824,8 +1825,319 @@ html {
   }
 }
 
-.input-shell.sending-turn {
-  animation: composerSendSettle 720ms var(--ease-premium) both;
+/* ======================================================================
+   COMPOSER — the thin pill and the send moment
+   ----------------------------------------------------------------------
+   Claude Code's input, not ChatGPT's tall pill. There is exactly ONE box:
+   the pill. Everything else — the toolbar — sits naked on the ground with
+   no surface behind it, which is the whole trick: a single object reads
+   thin however many controls hang beneath it.
+
+   Inside the pill only the send circle carries fill. At rest it is a
+   near-invisible plate; armed it is the brightest thing on the screen.
+   Nothing here uses a gradient, a ring or a glow: focus is the element's
+   own border brightening in place.
+   ====================================================================== */
+
+.cmp {
+  width: 100%;
+  max-width: var(--thread-measure);
+  margin: 0 auto;
+  box-sizing: border-box;
+}
+
+/* ── The pill ──────────────────────────────────────────────────────── */
+.cmp-pill {
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+  padding: 6px 6px 6px 14px;
+  box-sizing: border-box;
+  background: var(--cmp-fill);
+  border: 1px solid var(--cmp-hairline);
+  border-radius: var(--cmp-radius);
+  /* Lit top edge only — light from above, no shadow bloom at rest. */
+  box-shadow: var(--cmp-lit-edge);
+  transition:
+    border-color var(--dur-fast) var(--ease-out),
+    background-color var(--dur-fast) var(--ease-out);
+}
+.cmp-pill:hover { border-color: var(--cmp-hairline-hover); }
+.cmp-pill:focus-within {
+  border-color: var(--cmp-hairline-focus);
+  background: var(--cmp-fill-focus);
+}
+/* Blocked (no model key): the surface does not change, the ink does. */
+.cmp-pill[data-disabled="true"] { border-color: var(--cmp-hairline); }
+.cmp-pill[data-disabled="true"]:hover { border-color: var(--cmp-hairline); }
+.cmp-pill[data-disabled="true"] .cmp-input,
+.cmp-pill[data-disabled="true"] .cmp-input::placeholder { color: var(--cmp-ink-ghost); }
+
+/* ── The text ──────────────────────────────────────────────────────── */
+.cmp-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  width: 100%;
+  margin: 0;
+  /* One line sits exactly as tall as the send circle, so the row has a
+     single height and the glyph never floats off the text's centre. */
+  padding: 5px 4px;
+  min-height: var(--cmp-send-size);
+  max-height: var(--cmp-max-height);
+  background: transparent;
+  border: none;
+  outline: none;
+  resize: none;
+  /* Body step — the composer writes in the same voice the thread reads in. */
+  font-family: var(--font-sans);
+  font-size: var(--type-body-size);
+  font-weight: var(--type-body-weight);
+  line-height: var(--type-body-line);
+  letter-spacing: var(--type-body-track);
+  color: var(--cmp-ink);
+  caret-color: var(--cmp-ink-muted);
+  /* Native auto-grow where it exists; ChatView keeps a JS fallback that only
+     runs when this is unsupported, so the two never fight over `height`. */
+  field-sizing: content;
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+.cmp-input::placeholder { color: var(--cmp-ink-faint); }
+.cmp-input:focus-visible { outline: none; box-shadow: none; }
+
+/* ── The `+`, inside the pill ──────────────────────────────────────── */
+.cmp-lead {
+  display: flex;
+  align-items: center;
+  flex: 0 0 auto;
+  height: var(--cmp-send-size);
+  margin-left: -8px;
+}
+.cmp-lead .attach-btn {
+  width: 30px;
+  height: 30px;
+  color: var(--cmp-ink-faint);
+  border: 1px solid transparent;
+  transition: background-color var(--dur-micro) linear, color var(--dur-micro) linear;
+}
+.cmp-lead .attach-btn:hover {
+  color: var(--cmp-ink-muted);
+  background: var(--cmp-plate-hover);
+}
+.cmp-lead .attach-btn:active {
+  background: var(--cmp-plate-active);
+  transition-duration: 0s;
+}
+.cmp-lead .attach-btn:focus-visible {
+  border-color: var(--cmp-focus-border);
+  outline: none;
+  box-shadow: none;
+}
+.cmp-lead .attach-btn:disabled {
+  color: var(--cmp-ink-ghost);
+  background: transparent;
+  cursor: default;
+}
+
+/* ── The send circle — one slot, send and stop ─────────────────────── */
+.cmp-send {
+  flex: 0 0 auto;
+  width: var(--cmp-send-size);
+  height: var(--cmp-send-size);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--radius-pill);
+  background: var(--cmp-send-rest);
+  color: var(--cmp-ink-ghost);
+  cursor: default;
+  /* Leaving armed is the fast direction: backspacing past the last character
+     must not strobe. Each duration is declared on the state being ENTERED. */
+  transition:
+    background-color var(--cmp-disarm) linear,
+    color var(--cmp-disarm) linear;
+}
+.cmp-send[data-armed="true"] {
+  background: var(--cmp-ink);
+  color: var(--floor);
+  cursor: pointer;
+  transition:
+    background-color var(--cmp-arm) linear,
+    color var(--cmp-arm) linear;
+}
+.cmp-send[data-streaming="true"] {
+  background: var(--cmp-ink-muted);
+  color: var(--floor);
+  cursor: pointer;
+  transition:
+    background-color var(--cmp-arm) linear,
+    color var(--cmp-arm) linear;
+}
+/* In flight: the slot holds the armed fill, the glyph steps back. No timer,
+   no wobble — the only thing that moves is the message already on screen. */
+.cmp-pill[data-sending="true"] .cmp-send[data-armed="true"] svg,
+.cmp-pill[data-sending="true"] .cmp-send:not([data-streaming="true"]) svg {
+  opacity: 0.6;
+}
+.cmp-pill[data-sending="true"] .cmp-send:not([data-streaming="true"]) {
+  background: var(--cmp-ink);
+  color: var(--floor);
+}
+.cmp-send:focus-visible {
+  border-color: var(--cmp-focus-border);
+  outline: none;
+  box-shadow: none;
+}
+
+/* ── The naked toolbar ─────────────────────────────────────────────── */
+.cmp-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 6px;
+  /* No inset: the hover plate's edge lines up with the pill's edge above it,
+     which is the only alignment a surface-less row can offer. */
+  padding: 0;
+  min-height: var(--cmp-ctl-size);
+  /* Set on the ROW and inherited: a control with its own opinion (an armed
+     mode, a live mic) declares its ink on itself and a direct declaration
+     beats an inherited one whatever the specificity. */
+  color: var(--cmp-ink-muted);
+}
+.cmp-bar .agent-pills,
+.cmp-bar .composer-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+.cmp-bar .agent-pills { flex: 1 1 auto; }
+.cmp-bar .composer-actions { flex: 0 0 auto; justify-content: flex-end; }
+.cmp-bar:empty { display: none; }
+
+.cmp-bar button,
+.cmp-ctl {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: var(--cmp-ctl-size);
+  min-height: var(--cmp-ctl-size);
+  padding: 0 9px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: inherit;
+  font-family: var(--font-sans);
+  font-size: 12.5px;
+  font-weight: var(--weight-medium);
+  letter-spacing: var(--track-body);
+  cursor: pointer;
+  /* Hover is the only moment a naked glyph may draw a hit target. */
+  transition: background-color var(--dur-micro) linear, color var(--dur-micro) linear;
+}
+.cmp-bar button svg,
+.cmp-ctl svg { width: 14px; height: 14px; }
+.cmp-bar .mic-btn,
+.cmp-bar .attach-btn {
+  width: var(--cmp-ctl-size);
+  padding: 0;
+  justify-content: center;
+}
+.cmp-bar button:hover,
+.cmp-ctl:hover { background: var(--cmp-plate-hover); color: var(--cmp-ink); }
+.cmp-bar button:active,
+.cmp-ctl:active {
+  background: var(--cmp-plate-active);
+  transition-duration: 0s;
+}
+.cmp-bar button:focus-visible,
+.cmp-ctl:focus-visible {
+  border-color: var(--cmp-focus-border);
+  outline: none;
+  box-shadow: none;
+}
+.cmp-bar button:disabled,
+.cmp-ctl:disabled {
+  color: var(--cmp-ink-ghost);
+  background: transparent;
+  cursor: default;
+}
+.cmp-bar button:disabled:hover,
+.cmp-ctl:disabled:hover { background: transparent; color: var(--cmp-ink-ghost); }
+
+/* ── Effort control ────────────────────────────────────────────────── */
+.effort-wrap { position: relative; display: inline-flex; }
+.effort-trigger.open { background: var(--cmp-plate-active); color: var(--cmp-ink); }
+.effort-pop {
+  position: fixed;
+  z-index: 1200;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 120px;
+  padding: 4px;
+  background: var(--surface-3);
+  border: 1px solid var(--cmp-hairline-hover);
+  border-radius: 12px;
+  box-shadow: var(--cmp-lit-edge), 0 10px 30px rgba(0, 0, 0, 0.45);
+  outline: none;
+}
+.effort-item {
+  display: flex;
+  align-items: center;
+  height: var(--cmp-ctl-size);
+  padding: 0 9px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--cmp-ink-muted);
+  font-family: var(--font-sans);
+  font-size: 12.5px;
+  font-weight: var(--weight-medium);
+  letter-spacing: var(--track-body);
+  text-align: left;
+  cursor: pointer;
+  transition: background-color var(--dur-micro) linear, color var(--dur-micro) linear;
+}
+.effort-item.active { background: var(--cmp-plate-hover); color: var(--cmp-ink); }
+.effort-item.selected { color: var(--cmp-ink); }
+.effort-item:active { background: var(--cmp-plate-active); transition-duration: 0s; }
+.effort-item:focus-visible { outline: none; box-shadow: none; }
+
+/* ── The measure below 720px: edge to edge ─────────────────────────── */
+@media (max-width: 719px) {
+  .cmp { max-width: 100%; }
+}
+
+/* ── Mobile: collapsed at rest, fat touch targets ──────────────────── */
+@media (hover: none) and (pointer: coarse) {
+  .cmp-send { width: 44px; height: 44px; }
+  .cmp-bar button,
+  .cmp-ctl { height: 44px; min-height: 44px; }
+  .cmp-bar .mic-btn,
+  .cmp-bar .attach-btn { width: 44px; }
+  .cmp-lead { height: 44px; }
+  .cmp-lead .attach-btn { width: 44px; height: 44px; }
+  .cmp-input { min-height: 44px; padding-block: 10px; }
+}
+
+@media (max-width: 767px) {
+  .cmp-bar {
+    overflow: hidden;
+    max-height: 52px;
+    opacity: 1;
+    transition: max-height var(--dur-normal) var(--ease-premium), opacity var(--dur-fast) linear;
+  }
+  .cmp-pill[data-collapsed="true"] + .cmp-bar {
+    max-height: 0;
+    min-height: 0;
+    margin-top: 0;
+    opacity: 0;
+    pointer-events: none;
+  }
 }
 
 /* Alcove panel — slides up from inside the composer */
@@ -1995,7 +2307,6 @@ html {
 .input-shell .input-textarea:focus-visible,
 .input-shell .agent-pill:focus-visible,
 .input-shell .ensemble-pill:focus-visible,
-.input-shell .effort-select:focus-visible,
 .input-shell .send-btn:focus-visible {
   box-shadow: none;
 }
@@ -3146,15 +3457,6 @@ a.luca-download-trigger {
     height: 13px;
   }
 
-  .effort-select {
-    flex: 0 0 68px;
-    width: 68px;
-    height: 34px;
-    padding-left: 8px;
-    padding-right: 20px;
-    font-size: 11px;
-  }
-
   /* Touch targets: WCAG 2.5.5 / Apple HIG 44px minimum. Icons stay small
      (sized via their own svg width); only the hit area grows. */
   .send-btn {
@@ -3179,55 +3481,6 @@ a.luca-download-trigger {
     margin-right: 0;
   }
 
-  /* ── Collapsed → expanded composer (mobile) ──
-     Resting (unfocused + empty + no attachments) is a compact single-line pill:
-     just the placeholder, on the premium lit-from-above surface. Tap (focus) or
-     any typed text expands it to reveal +/mic/send. The surface carries through
-     both states — only the footer reveals, so there's no reflow of the field.
-     The + button still works while expanded because .input-footer's onMouseDown
-     preventDefault keeps the tap from blurring (and re-collapsing) the field. */
-  .input-shell .input-textarea {
-    transition: padding 260ms cubic-bezier(0.22, 1, 0.36, 1);
-  }
-  .input-shell.composer-collapsed .input-textarea {
-    padding: 13px 18px;            /* center the single line within the pill */
-    overflow: hidden;
-  }
-  /* Footer — collapsing direction (default): contents fade fast, then close */
-  .input-shell .input-footer {
-    overflow: hidden;
-    transition: max-height 240ms cubic-bezier(0.22, 1, 0.36, 1),
-                opacity 120ms ease,
-                transform 240ms cubic-bezier(0.22, 1, 0.36, 1),
-                padding 240ms cubic-bezier(0.22, 1, 0.36, 1);
-  }
-  /* Footer — expanding direction: panel opens first, then controls rise + fade */
-  .input-shell:not(.composer-collapsed) .input-footer {
-    max-height: 52px;
-    opacity: 1;
-    transform: translateY(0);
-    transition: max-height 280ms cubic-bezier(0.22, 1, 0.36, 1),
-                opacity 220ms ease 90ms,
-                transform 320ms cubic-bezier(0.22, 1, 0.36, 1) 50ms,
-                padding 280ms cubic-bezier(0.22, 1, 0.36, 1);
-  }
-  .input-shell.composer-collapsed .input-footer {
-    max-height: 0;
-    min-height: 0;
-    margin: 0;
-    padding-top: 0;
-    padding-bottom: 0;
-    opacity: 0;
-    transform: translateY(6px);
-    pointer-events: none;
-  }
-
-  .input-shell.attachment-menu-open .input-footer {
-    overflow: visible;
-    position: relative;
-    z-index: 4;
-  }
-  .input-shell.attachment-menu-open .agent-pills,
   .attachment-source-control.open {
     overflow: visible;
   }
@@ -3390,7 +3643,11 @@ a.luca-download-trigger {
 }
 
 .chat-message-column {
-  width: min(var(--message-max-width), 100%);
+  /* The reading column and the composer share one measure: the column's
+     content box (sidehead + gap + body) is exactly --thread-measure wide,
+     which is the composer's outer width, so the two line up edge to edge.
+     Sideheads keep their own 72px track — only the body measure moves. */
+  width: min(calc(var(--thread-measure) + 64px), 100%);
   max-width: 100%;
   min-width: 0;
   margin: 0 auto;
