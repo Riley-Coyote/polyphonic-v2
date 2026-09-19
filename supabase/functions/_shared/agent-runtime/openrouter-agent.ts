@@ -778,6 +778,83 @@ function normalizeRecentTurns(messages: ChatMessage[]): Array<{ role: string; co
   }));
 }
 
+function clampInteger(value: unknown, min: number, max: number, fallback: number): number {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.max(min, Math.min(max, Math.round(parsed)));
+}
+
+async function dispatchSubagentTask(
+  options: OpenRouterAgentRuntimeOptions,
+  args: { task: string; tool_budget?: number; time_budget_seconds?: number },
+): Promise<unknown> {
+  return await safeToolResult(async () => {
+    if (!options.userId || !options.threadId) return { ok: false, error: "Missing user or thread context" };
+
+    const taskRaw = String(args.task || "").trim();
+    if (!taskRaw) return { ok: false, error: "task description required" };
+    const taskDescription = taskRaw.length > 1500 ? taskRaw.slice(0, 1500) : taskRaw;
+    const toolBudget = clampInteger(args.tool_budget, 1, 50, 20);
+    const timeBudget = clampInteger(args.time_budget_seconds, 30, 900, 300);
+
+    const { data: activeRows } = await options.supabase
+      .from("subagent_tasks")
+      .select("id")
+      .eq("user_id", options.userId)
+      .in("status", ["pending", "running"])
+      .limit(6);
+
+    if (Array.isArray(activeRows) && activeRows.length >= 5) {
+      return {
+        ok: false,
+        error:
+          "subagent_limit_reached: 5 subagents are already running. Wait for one to finish before dispatching another.",
+      };
+    }
+
+    const { data: inserted, error } = await options.supabase
+      .from("subagent_tasks")
+      .insert({
+        user_id: options.userId,
+        agent_id: options.agentId,
+        parent_thread_id: options.threadId,
+        parent_message_id: options.userMessageId ?? null,
+        attachment_ids: Array.isArray(options.attachmentIds) ? options.attachmentIds : [],
+        task_description: taskDescription,
+        tool_budget: toolBudget,
+        time_budget_seconds: timeBudget,
+        status: "pending",
+      })
+      .select("id, status, tool_budget, time_budget_seconds")
+      .single();
+
+    if (error || !inserted) {
+      return { ok: false, error: error?.message || "Failed to register subagent task" };
+    }
+
+    fetch(`${options.supabaseUrl}/functions/v1/subagent-run`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${options.serviceRoleKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ task_id: inserted.id }),
+    }).catch((dispatchErr) => {
+      console.warn("[openrouter-agent-runtime] subagent-run dispatch failed (non-fatal):", dispatchErr);
+    });
+
+    return {
+      ok: true,
+      subagent_id: inserted.id,
+      status: "dispatched",
+      tool_budget: inserted.tool_budget,
+      time_budget_seconds: inserted.time_budget_seconds,
+      note:
+        "Subagent dispatched. It runs in the background and will post a report back into this thread when finished.",
+    };
+  });
+}
+
 async function invokeEdgeJson(
   options: OpenRouterAgentRuntimeOptions,
   edgeFunction: string,
