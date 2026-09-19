@@ -77,7 +77,7 @@ import { loadMcpToolRegistrations } from "../_shared/mcp/client.ts";
 import { formatProjectContextPrompt, loadProjectContextForThread } from "../_shared/projects/context.ts";
 import { formatPolyphonicAppContext } from "../_shared/agents/polyphonic-app-context.ts";
 import { buildCustomAgentSystemPrompt } from "../_shared/agents/custom-agent-prompt.ts";
-import { looksLikeImageToolRequest } from "../_shared/image-generation.ts";
+import { looksLikeDirectImageGenerationRequest, looksLikeImageToolRequest } from "../_shared/image-generation.ts";
 import { looksLikeComplexResearchNeed, looksLikeResearchTeamRequest } from "../_shared/research-team.ts";
 import {
   buildClassicChatSystemPrompt,
@@ -947,6 +947,7 @@ Allowed preview presets: wave-scattering, reaction-diffusion, fluid-field, field
         corsHeaders,
         requestId,
         idempotencyKey,
+        requireImageGeneration: looksLikeDirectImageGenerationRequest(messageWithAttachments),
         autonomousMemory: autonomousMemoryResult,
         userMessageId: typeof sourceMessageId === "string" ? sourceMessageId : null,
         attachmentIds,
