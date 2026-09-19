@@ -69,6 +69,7 @@ import { claimIdempotencyKey, recordIdempotentResponse } from "../_shared/idempo
 import { resolveChatBackend, type ChatBackend } from "../_shared/model-backend.ts";
 import { AppError, AuthError, MissingApiKeyError, ValidationError, errorResponse, newRequestId } from "../_shared/errors.ts";
 import {
+  isExtendedRuntimeToolsEnabled,
   isOpenRouterAgentRuntimeEnabled,
   openRouterAgentSdkStream,
 } from "../_shared/agent-runtime/openrouter-agent.ts";
