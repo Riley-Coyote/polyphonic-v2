@@ -82,10 +82,21 @@ describe('image pipeline integration guards', () => {
   const provider = source('supabase/functions/_shared/imageModel.ts');
   const create = source('supabase/functions/anima-image-create/index.ts');
 
-  it('keeps image turns out of the SDK runtime and deterministic in the planner', () => {
+  const runtime = source('supabase/functions/_shared/agent-runtime/openrouter-agent.ts');
+
+  it('keeps the deterministic planner only as the fallback when the runtime has no image tools', () => {
+    expect(chat).toContain('const runtimeCanRenderMedia = isExtendedRuntimeToolsEnabled(userId)');
+    expect(chat).toContain('!runtimeCanRenderMedia && looksLikeImageToolRequest(messageWithAttachments)');
     expect(chat).toContain('!likelyGeneratedMediaRequest');
     expect(planner).toContain('looksLikeDirectImageGenerationRequest(latestContent)');
     expect(planner).toContain('executeDeterministicImageGeneration');
+  });
+
+  it('offers the runtime image tools to every user with no allowlist', () => {
+    expect(runtime).not.toContain('AGENT_RUNTIME_EXTENDED_TOOLS_ALLOWLIST');
+    expect(runtime).toContain('"false"');
+    expect(runtime).toContain('name: "generate_image"');
+    expect(runtime).toContain('name: "edit_image"');
   });
 
   it('uses the dedicated OpenRouter Images API and preserves OpenAI generation', () => {
