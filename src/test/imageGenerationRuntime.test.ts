@@ -99,6 +99,12 @@ describe('image pipeline integration guards', () => {
     expect(runtime).toContain('name: "edit_image"');
   });
 
+  it('persists generated images as attachments so they render inline', () => {
+    expect(runtime).toContain('function buildMediaAttachments(');
+    expect(runtime).toContain('buildMediaAttachments(toolCalls, toolResults)');
+    expect(runtime).toContain('mediaAttachments.length > 0 ? { attachments: mediaAttachments }');
+  });
+
   it('uses the dedicated OpenRouter Images API and preserves OpenAI generation', () => {
     expect(provider).toContain('https://openrouter.ai/api/v1/images');
     expect(provider).not.toContain('https://openrouter.ai/api/v1/chat/completions');
