@@ -2,7 +2,7 @@
 
 A living mind, not a chatbot. Multi-model AI companion with memory, journal, and inner life.
 
-> This is the **web app**. The Polyphonic desktop app is a separate codebase: [luca-agent-network-v1](https://github.com/Riley-Coyote/luca-agent-network-v1).
+> This is the **web app**. The Polyphonic desktop app lives in a separate codebase.
 
 ## Development
 
