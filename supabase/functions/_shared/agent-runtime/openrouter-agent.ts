@@ -612,6 +612,9 @@ function buildRuntimeTools(options: OpenRouterAgentRuntimeOptions, send: SendEve
         });
       },
     }),
+  ];
+
+  const extendedTools: any[] = [
     tool({
       name: "workspace_file",
       description:
