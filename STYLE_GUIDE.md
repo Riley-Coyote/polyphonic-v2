@@ -17,7 +17,7 @@ The starting point for any new feature or surface in polyphonic-v2. Read this fi
 - **Warm black, not cold gray.** Surface palette is temperature-locked (B = R × 1.20). Text is warm cream, never pure white.
 - **Restraint over spectacle.** Accents (green/amber/red) pop *because* the rest is muted. Don't add more color — use the ones we have sparingly.
 - **Agent identity is monochrome by default; full-color in identity contexts only.** Group session, agent settings, per-message author label. Everywhere else: cream.
-- **Small delightful details earn their keep.** Prime-interval shimmer on the composer, dual halos on checkpoint dots, staggered onboarding reveal, 3×3 murmur grids on sub-agents — these are the signature moments. Don't dilute them by copying the pattern elsewhere.
+- **Small delightful details earn their keep.** The thin composer's ink-circle send and the Observer well cut into the floor, dual halos on checkpoint dots, staggered onboarding reveal, 3×3 murmur grids on sub-agents — these are the signature moments. Don't dilute them by copying the pattern elsewhere.
 
 ## Anti-references (what NOT to build like)
 
@@ -386,12 +386,12 @@ When vektor spawns sub-agents, use the blue spectrum `--v1`/`--v2`/`--v3` with `
 
 - **`prefers-reduced-motion: reduce`** — the global rule in `index.css` collapses all animations and transitions. Don't override it unless specifically needed.
 - **`translateY(-1px)` on hover for buttons** — the small lift is signature.
-- **Prime-interval shimmer on composer** — don't simplify to a regular pulse.
+- **The thin composer** — one 48px pill, strokeless at rest with a lit top edge; the 34px ink-circle send is the only thing with weight (arm 140ms / disarm 90ms). No shimmer, no glow, no ring on focus — the border brightens in place.
 - **Stagger on simultaneous arrivals** — 120ms between sibling elements landing.
 
 ### Signature moments (don't dilute)
 
-- Composer border prime-shimmer (8 pools, 3/5/7/11/13/17/19/23s)
+- The Observer well — the floor recesses beneath the pill (no border, no card); the pill sits in its mouth. (The 8-pool prime-shimmer survives only on the landing page's input.)
 - Sub-agent 3×3 murmur dot grid (prime-staggered, never syncs)
 - Drawer slide-in (380ms premium ease, with backdrop blur 2px)
 - Onboarding entrance: Instrument Serif italic hero ("Luca's voice") over the EchoField particle orb, with the step card beside it

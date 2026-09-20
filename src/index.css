@@ -227,6 +227,7 @@
      the button. Each duration is declared on the state being ENTERED. */
   --thread-measure:     640px;
   --cmp-radius:         22px;
+  --cmp-bar-gap: 10px;
   --cmp-max-height:     240px;
   --cmp-send-size:      34px;
   --cmp-ctl-size:       28px;
@@ -2015,7 +2016,7 @@ html {
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-  margin-top: 6px;
+  margin-top: var(--cmp-bar-gap);
   /* No inset: the hover plate's edge lines up with the pill's edge above it,
      which is the only alignment a surface-less row can offer. */
   padding: 0;
