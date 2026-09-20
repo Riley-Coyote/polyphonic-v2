@@ -6,7 +6,7 @@ import { ChatTargetPicker, type ChatTarget } from '@/components/composer/ChatTar
 import { ObserverEyeChip } from '@/components/composer/ObserverEyeChip';
 import ModesDropdown from '@/components/composer/ModesDropdown';
 import DictationButton from '@/components/composer/DictationButton';
-import Composer from '@/components/composer/Composer';
+import Composer, { ObserverWell } from '@/components/composer/Composer';
 import EffortControl from '@/components/composer/EffortControl';
 import VoiceModeButton from '@/components/voice/VoiceModeButton';
 import { LiveCallOverlay } from '@/components/voice/LiveCallOverlay';
@@ -1664,47 +1664,36 @@ export default function ChatView() {
     return null;
   };
 
-  const renderObserverAlcove = () => (
-    <div className={`alcove-panel${alcoveOpen ? ' open' : ''}`}>
-      <div className="alcove-inner">
-        <div className="alcove-content">
-          <div className="alcove-header">
-            <div className="guardian-dot" />
-            <div className="guardian-label">observer</div>
-            <div className="alcove-sep" />
-            <div className="alcove-status">observing your conversation</div>
-            <div className="alcove-spacer" />
-            <button className="alcove-close" onClick={() => setAlcoveOpen(false)} aria-label="Close observer">
-              <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth={1.5}><path d="M3 5l4 4 4-4" /></svg>
-            </button>
-          </div>
-          <div className="alcove-messages" ref={guardianScrollRef}>
-            {guardianMessages.length === 0 && !guardianStreaming && (
-              <div className="a-msg guardian">
-                <div className="a-msg-body">observing your conversation. ask me anything about what you and Luca have been discussing.</div>
-              </div>
-            )}
-            {guardianMessages.map((msg, i) => (
-              <div key={i} className={`a-msg ${msg.role === 'user' ? 'user' : 'guardian'}`}>
-                <div className="a-msg-body">{msg.content}</div>
-              </div>
-            ))}
-            {guardianStreaming && guardianStreamingContent && (
-              <div className="a-msg guardian">
-                <div className="a-msg-body">{guardianStreamingContent}<span className="streaming-cursor-inline" /></div>
-              </div>
-            )}
-            {guardianStreaming && !guardianStreamingContent && (
-              <div className="a-msg guardian">
-                <div className="a-msg-body alcove-thinking-dots">
-                  {[0, 1, 2].map(i => <span key={i} />)}
-                </div>
-              </div>
-            )}
-          </div>
+  /* The Observer well. The chrome lives in `<ObserverWell>` (composer/
+     Composer.tsx) so this surface and the DEV harness render the same
+     markup; only the turns are ours. */
+  const observerStatus = guardianStreaming
+    ? (guardianStreamingContent ? 'replying\u2026' : 'thinking\u2026')
+    : 'observing your conversation';
+
+  const renderObserverWell = () => (
+    <ObserverWell
+      open={alcoveOpen}
+      streaming={guardianStreaming}
+      status={observerStatus}
+      onClose={() => setAlcoveOpen(false)}
+      scrollRef={guardianScrollRef}
+    >
+      {guardianMessages.length === 0 && !guardianStreaming && (
+        <div className="cmp-well-msg observer">observing your conversation. ask me anything about what you and Luca have been discussing.</div>
+      )}
+      {guardianMessages.map((msg, i) => (
+        <div key={i} className={`cmp-well-msg ${msg.role === 'user' ? 'user' : 'observer'}`}>{msg.content}</div>
+      ))}
+      {guardianStreaming && guardianStreamingContent && (
+        <div className="cmp-well-msg observer">{guardianStreamingContent}<span className="streaming-cursor-inline" /></div>
+      )}
+      {guardianStreaming && !guardianStreamingContent && (
+        <div className="cmp-well-msg observer cmp-well-dots">
+          {[0, 1, 2].map(i => <span key={i} />)}
         </div>
-      </div>
-    </div>
+      )}
+    </ObserverWell>
   );
 
   const resolvePermissionMessage = useCallback(async (
@@ -2995,9 +2984,10 @@ export default function ChatView() {
                   onCamera={openCameraPicker}
                 />
               ) : null}
+              well={!classicChatActive ? renderObserverWell() : null}
+              wellOpen={alcoveOpen}
               above={(
                 <>
-                  {!classicChatActive && renderObserverAlcove()}
                   {!alcoveOpen && renderModelKeyNotice()}
                   {!alcoveOpen && renderPendingAttachments()}
                 </>
@@ -3606,9 +3596,10 @@ export default function ChatView() {
               onCamera={openCameraPicker}
             />
           ) : null}
+          well={!classicChatActive ? renderObserverWell() : null}
+          wellOpen={alcoveOpen}
           above={(
             <>
-              {!classicChatActive && renderObserverAlcove()}
               {!alcoveOpen && renderModelKeyNotice()}
               {!alcoveOpen && renderPendingAttachments()}
             </>

@@ -80,7 +80,77 @@ describe('thin composer', () => {
     const armed = styles.indexOf('.cmp-send[data-armed="true"]');
     expect(styles.slice(armed, armed + 400)).toContain('var(--cmp-arm)');
     // No gradient anywhere in the composer block.
-    const block = styles.slice(styles.indexOf('.cmp {'), styles.indexOf('/* Alcove panel'));
+    const block = styles.slice(styles.indexOf('.cmp {'), styles.indexOf(WELL_MARKER));
     expect(block).not.toContain('gradient(');
+  });
+});
+
+const WELL_MARKER = '/* \u2500\u2500 The Observer well';
+
+describe('the observer well', () => {
+  it('renders the Observer through the well slot instead of a floating panel', () => {
+    const chatView = readRepoFile('src/pages/ChatView.tsx');
+
+    // The alcove panel and its mini message list are gone from the surface.
+    expect(chatView).not.toContain('alcove-panel');
+    expect(chatView).not.toContain('alcove-header');
+    expect(chatView).not.toContain('a-msg');
+    expect(chatView).not.toContain('renderObserverAlcove');
+
+    // Both composers take the well through its own slot, not `above`.
+    expect(chatView).toContain('<ObserverWell');
+    expect([...chatView.matchAll(/\bwell=\{/g)]).toHaveLength(2);
+    expect([...chatView.matchAll(/\bwellOpen=\{alcoveOpen\}/g)]).toHaveLength(2);
+
+    // The chrome lives in one place, so ChatView and the harness photograph
+    // the same markup.
+    const composer = readRepoFile('src/components/composer/Composer.tsx');
+    expect(composer).toContain('export function ObserverWell');
+    expect(composer).toContain('className="cmp-well"');
+    expect(readRepoFile('src/dev/ComposerHarness.tsx')).toContain('<ObserverWell');
+  });
+
+  it('cuts the well into the floor instead of laying a card on it', () => {
+    const styles = readRepoFile('src/index.css');
+    for (const token of [
+      '--cmp-well-bg',
+      '--cmp-well-lip',
+      '--cmp-well-radius',
+      '--cmp-well-max',
+      '--cmp-well-overlap',
+      '--cmp-well-header',
+    ]) {
+      expect(styles).toContain(`${token}:`);
+    }
+
+    const surface = styles.slice(
+      styles.indexOf('.cmp-well-surface {'),
+      styles.indexOf('}', styles.indexOf('.cmp-well-surface {')),
+    );
+    // A recess has no stroke, no lit edge and no gradient — only the top lip.
+    expect(surface).not.toMatch(/\bborder(-(top|right|bottom|left))?:/);
+    expect(surface).not.toContain('gradient(');
+    expect(surface).toContain('var(--cmp-well-bg)');
+    expect(surface).toContain('var(--cmp-well-lip)');
+
+    // The mouth: the well tucks under the pill, which sits on top of it.
+    expect(styles).toContain('margin-bottom: calc(var(--cmp-well-overlap) * -1)');
+    expect(styles).toMatch(/\.cmp-pill \{[^}]*z-index: 1/);
+  });
+
+  it('shimmers the label only while the Observer is generating', () => {
+    const styles = readRepoFile('src/index.css');
+    const well = styles.slice(styles.indexOf(WELL_MARKER), styles.indexOf('/* Textarea */'));
+    const gradients = [...well.matchAll(/gradient\(/g)];
+    expect(gradients).toHaveLength(1);
+
+    const shimmer = styles.indexOf('.cmp-well[data-streaming="true"] .cmp-well-label');
+    expect(shimmer).toBeGreaterThan(-1);
+    expect(shimmer).toBeLessThan(styles.indexOf('gradient(', styles.indexOf(WELL_MARKER)));
+
+    // The resting label is plain ink — no animation declared on it.
+    const rest = styles.slice(styles.indexOf('.cmp-well-label {'), shimmer);
+    expect(rest).not.toContain('animation');
+    expect(rest).toContain('var(--cmp-ink-muted)');
   });
 });

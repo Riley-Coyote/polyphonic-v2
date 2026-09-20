@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react';
-import { Plus } from 'lucide-react';
-import Composer from '@/components/composer/Composer';
+import { Eye, Plus } from 'lucide-react';
+import Composer, { ObserverWell } from '@/components/composer/Composer';
 import EffortControl from '@/components/composer/EffortControl';
 import type { ReasoningEffort } from '@/lib/chatRuntime';
 import { useIsMobile } from '@/hooks/use-mobile';
@@ -18,7 +18,34 @@ import { useIsMobile } from '@/hooks/use-mobile';
  * stand-in controls exist only so the toolbar has real buttons to style.
  */
 
-type HarnessState = 'empty' | 'armed' | 'streaming' | 'disabled' | 'multiline' | 'sending';
+type HarnessState =
+  | 'empty'
+  | 'armed'
+  | 'streaming'
+  | 'disabled'
+  | 'multiline'
+  | 'sending'
+  | 'observer'
+  | 'observer-thinking';
+
+const STATES: HarnessState[] = [
+  'empty',
+  'armed',
+  'streaming',
+  'disabled',
+  'multiline',
+  'sending',
+  'observer',
+  'observer-thinking',
+];
+
+/* Harness-only sample turns. The app never renders invented Observer copy —
+   these exist so the well has something to be a well around. */
+const SAMPLE_TURNS: Array<{ role: 'observer' | 'user'; text: string }> = [
+  { role: 'observer', text: 'observing your conversation. ask me anything about what you and Luca have been discussing.' },
+  { role: 'user', text: 'what changed between the two audits?' },
+  { role: 'observer', text: 'the second audit dropped the spinner and the SENDING label, and moved the clear-and-insert to the top of the send path. the first one still had both on a timer.' },
+];
 
 const EIGHT_LINES = [
   'The composer should be so well designed you forget it exists.',
@@ -52,6 +79,10 @@ export default function ComposerHarness() {
   const disabled = state === 'disabled';
   const sending = state === 'sending';
   const armed = !streaming && !disabled && value.trim().length > 0;
+  // The well: `observer` shows three turns at rest, `observer-thinking` the
+  // dots and the sweeping label. Closed, it must cost zero layout.
+  const wellOpen = state === 'observer' || state === 'observer-thinking';
+  const wellThinking = state === 'observer-thinking';
 
   return (
     <div
@@ -73,7 +104,7 @@ export default function ComposerHarness() {
         aria-label="Composer states"
         style={{ display: 'flex', flexWrap: 'wrap', gap: 6, justifyContent: 'center' }}
       >
-        {(['empty', 'armed', 'streaming', 'disabled', 'multiline', 'sending'] as HarnessState[]).map((item) => (
+        {STATES.map((item) => (
           <button
             key={item}
             type="button"
@@ -109,20 +140,49 @@ export default function ComposerHarness() {
           armed={armed || sending}
           disabled={disabled}
           collapsed={isMobile && state === 'empty'}
-          placeholder={disabled ? 'Add a model key to start chatting…' : 'Message Luca...'}
-          ariaLabel="Message Luca"
+          placeholder={wellOpen ? 'Ask the Observer...' : disabled ? 'Add a model key to start chatting…' : 'Message Luca...'}
+          ariaLabel={wellOpen ? 'Ask Observer' : 'Message Luca'}
           sendLabel={streaming ? 'Stop response' : 'Send message'}
           textareaRef={textareaRef}
+          wellOpen={wellOpen}
+          well={
+            <ObserverWell
+              open={wellOpen}
+              streaming={wellThinking}
+              status={wellThinking ? 'thinking\u2026' : 'observing your conversation'}
+              onClose={() => apply('empty')}
+            >
+              {SAMPLE_TURNS.map((turn, i) => (
+                <div key={i} className={`cmp-well-msg ${turn.role}`}>{turn.text}</div>
+              ))}
+              {wellThinking && (
+                <div className="cmp-well-msg observer cmp-well-dots">
+                  {[0, 1, 2].map((i) => <span key={i} />)}
+                </div>
+              )}
+            </ObserverWell>
+          }
           leading={
-            <button type="button" className="attach-btn" aria-label="Add attachment">
-              <Plus size={15} strokeWidth={1.6} aria-hidden="true" />
-            </button>
+            !wellOpen ? (
+              <button type="button" className="attach-btn" aria-label="Add attachment">
+                <Plus size={15} strokeWidth={1.6} aria-hidden="true" />
+              </button>
+            ) : null
           }
           barLeft={
             <div className="agent-pills">
-              <button type="button" className="cmp-ctl">observer</button>
-              <div className="pill-sep" />
-              <button type="button" className="cmp-ctl">Modes</button>
+              {/* Shaped like ObserverEyeChip so the active plate can be seen. */}
+              <button
+                type="button"
+                className={`agent-pill${wellOpen ? ' targeted' : ''}`}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
+                onClick={() => apply(wellOpen ? 'empty' : 'observer')}
+              >
+                <Eye size={12} aria-hidden="true" />
+                <span>observer</span>
+              </button>
+              {!wellOpen && <div className="pill-sep" />}
+              {!wellOpen && <button type="button" className="cmp-ctl">Modes</button>}
             </div>
           }
           barRight={

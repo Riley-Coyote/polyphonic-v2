@@ -8,9 +8,10 @@ interface ObserverEyeChipProps {
 }
 
 /**
- * Composer chip that toggles the Observer alcove (slides up from the
- * composer). The Observer is NOT a selectable agent — it lives behind
- * this dedicated button and watches the conversation in the background.
+ * Composer chip that toggles the Observer well (the floor beneath the
+ * composer recesses). The Observer is NOT a selectable agent — it lives
+ * behind this dedicated button and watches the conversation in the
+ * background.
  */
 export function ObserverEyeChip({ threadId, open, onToggle }: ObserverEyeChipProps) {
   const notes = useObserverStore((s) =>
@@ -24,12 +25,10 @@ export function ObserverEyeChip({ threadId, open, onToggle }: ObserverEyeChipPro
       className={`agent-pill${open ? ' targeted' : ''}`}
       title="Observer (⌘J) — open to ask about this conversation"
       onClick={onToggle}
-      style={{
-        display: 'inline-flex',
-        alignItems: 'center',
-        gap: 6,
-        color: open ? 'var(--text-body)' : 'var(--text-soft)',
-      }}
+      /* No inline colour: an inline declaration beats every CSS rule, which
+         would lock the chip out of the toolbar's own five states. `.targeted`
+         is the active hook the bar styles against. */
+      style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
     >
       <Eye size={12} />
       <span>observer</span>
