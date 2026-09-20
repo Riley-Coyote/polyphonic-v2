@@ -65,7 +65,7 @@ Deno.serve(async (req) => {
   // release. A send may still override it per call.
   const defaultDownloadUrl =
     Deno.env.get('BETA_DOWNLOAD_URL') ||
-    'https://github.com/Riley-Coyote/luca-agent-network-v1/releases/latest/download/Polyphonic.dmg'
+    'https://github.com/Riley-Coyote/polyphonic-app/releases/latest/download/Polyphonic.dmg'
   const requestedDownloadUrl = typeof body.download_url === 'string' ? body.download_url.trim() : ''
   const downloadUrl = requestedDownloadUrl || defaultDownloadUrl
   if (!dryRun && !/^https:\/\/\S+$/.test(downloadUrl)) {
