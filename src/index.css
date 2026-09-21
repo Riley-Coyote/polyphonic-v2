@@ -214,12 +214,10 @@
 
   /* ─── Phones ─────────────────────────────────────────────────────────
      The phone register. A tap target is 44px because that is the smallest
-     thing a thumb reliably hits; a section tile is 64px because a glyph
-     over a label needs two lines of room; the active-agent row is 36px
-     because it is context, not a control you go looking for. */
+     thing a thumb reliably hits; the active-agent row is 36px because it is
+     context, not a control you go looking for. */
   --touch-target:        44px;
   --mobile-row-h:        var(--touch-target);
-  --mobile-tile-h:       64px;
   --mobile-agent-row-h:  36px;
 
   /* ─── Composer — the thin pill and the send moment ──────────────────
@@ -1361,7 +1359,7 @@ html {
 @media (hover: none) and (pointer: coarse) {
   .mobile-bar-button::after,
   .mobile-nav-icon-btn::after,
-  .mobile-nav-account-settings::after {
+  .mobile-nav-footer-btn::after {
     content: '';
     position: absolute;
     top: 50%;
@@ -1370,10 +1368,30 @@ html {
     height: var(--touch-target);
     transform: translate(-50%, -50%);
   }
+  /* The sign-out link is the one deliberate exception: it is a secondary
+     line stacked inside a 44px account cell, so it takes the 32px box the
+     cell has room for — grown downwards, into the footer's own padding,
+     rather than upwards where it would swallow the email above it. */
+  .mobile-nav-footer-signout::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 32px;
+  }
   /* Full-width rows only need the height restored. */
   .mobile-agent-row,
+  .mobile-nav-agent-page,
+  .mobile-nav-agent-switch,
+  .mobile-agent-scope-option,
+  .mobile-nav-projects-all,
   .msg-trace-button { position: relative; }
   .mobile-agent-row::after,
+  .mobile-nav-agent-page::after,
+  .mobile-nav-agent-switch::after,
+  .mobile-agent-scope-option::after,
+  .mobile-nav-projects-all::after,
   .msg-trace-button::after,
   .mobile-bar-agent-picker .agent-picker-trigger--header::after {
     content: '';
@@ -1408,7 +1426,9 @@ html {
   bottom: 0;
   z-index: 131;
   width: min(88dvw, 352px);
-  padding: calc(10px + env(safe-area-inset-top)) 12px calc(14px + env(safe-area-inset-bottom));
+  /* No bottom padding: the footer is pinned to the drawer's bottom edge and
+     carries the safe-area inset itself, so it reaches the screen edge. */
+  padding: calc(10px + env(safe-area-inset-top)) 12px 0;
   /* The drawer is the app's own ground brought forward; the backdrop darkens
      everything behind it. #050506 was chosen when the phone floor was pure
      black and the panel had to be the lighter thing — on the real floor it
@@ -1584,6 +1604,93 @@ html {
 }
 .mobile-agent-row[aria-expanded="true"] { color: var(--cmp-ink); }
 
+/* ── The agent's dropdown ─────────────────────────────────────────────
+   Memory, Mind and Journal are the agent's own pages, so they open from
+   the agent's row rather than from a grid of tiles at the bottom of the
+   list. A one-shot grid-rows toggle: the list below is pushed, not
+   covered, so nothing about the drawer is a floating layer. */
+.mobile-nav-agent-menu {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows var(--dur-fast) var(--ease-out);
+}
+.mobile-nav-agent-menu[data-open="true"] {
+  grid-template-rows: 1fr;
+}
+.mobile-nav-agent-menu-clip {
+  min-height: 0;
+  overflow: hidden;
+  /* Collapsed content is out of the tab order, not merely clipped. */
+  visibility: hidden;
+  transition: visibility 0s linear var(--dur-fast);
+}
+.mobile-nav-agent-menu[data-open="true"] .mobile-nav-agent-menu-clip {
+  visibility: visible;
+  transition: visibility 0s;
+}
+.mobile-nav-agent-menu-inner {
+  display: grid;
+  gap: 2px;
+  padding: 4px 0 2px;
+}
+.mobile-nav-agent-page,
+.mobile-nav-agent-switch {
+  appearance: none;
+  width: 100%;
+  min-height: 40px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 12px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--cmp-ink-muted);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: var(--weight-book);
+  letter-spacing: var(--track-body);
+  text-align: left;
+  cursor: pointer;
+  transition: background-color var(--dur-micro) linear, color var(--dur-micro) linear;
+}
+.mobile-nav-agent-page span,
+.mobile-nav-agent-switch span {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mobile-nav-agent-page > svg { flex: 0 0 auto; color: var(--cmp-ink-faint); }
+.mobile-nav-agent-page:hover,
+.mobile-nav-agent-switch:hover { background: var(--cmp-plate-hover); color: var(--cmp-ink); }
+.mobile-nav-agent-page:hover > svg { color: var(--cmp-ink); }
+.mobile-nav-agent-page:active,
+.mobile-nav-agent-switch:active { background: var(--cmp-plate-active); transition-duration: 0s; }
+.mobile-nav-agent-page:focus-visible,
+.mobile-nav-agent-switch:focus-visible {
+  border-color: var(--cmp-focus-border);
+  outline: none;
+  box-shadow: none;
+}
+.mobile-nav-agent-page[data-active="true"] {
+  background: var(--cmp-plate-active);
+  color: var(--cmp-ink);
+}
+.mobile-nav-agent-page[data-active="true"] > svg { color: var(--cmp-ink); }
+.mobile-nav-agent-switch { color: var(--cmp-ink-faint); }
+.mobile-nav-agent-switch[aria-expanded="true"] { color: var(--cmp-ink-muted); }
+.mobile-nav-agent-switch-chevron {
+  flex: 0 0 auto;
+  transition: transform var(--dur-fast) var(--ease-out);
+}
+.mobile-nav-agent-rule {
+  height: 1px;
+  margin: 4px 12px;
+  background: var(--cmp-hairline);
+}
+
 .mobile-agent-scope-list {
   display: grid;
   gap: 2px;
@@ -1635,8 +1742,7 @@ html {
 }
 
 /* ── New chat ─────────────────────────────────────────────────────── */
-.mobile-nav-primary,
-.mobile-nav-signout {
+.mobile-nav-primary {
   appearance: none;
   width: 100%;
   min-height: var(--mobile-row-h);
@@ -1659,10 +1765,8 @@ html {
 }
 .mobile-nav-primary { background: var(--cmp-plate-hover); }
 .mobile-nav-primary:hover { background: var(--cmp-plate-active); }
-.mobile-nav-primary:active,
-.mobile-nav-signout:active { background: var(--cmp-plate-active); transition-duration: 0s; }
-.mobile-nav-primary:focus-visible,
-.mobile-nav-signout:focus-visible {
+.mobile-nav-primary:active { background: var(--cmp-plate-active); transition-duration: 0s; }
+.mobile-nav-primary:focus-visible {
   border-color: var(--cmp-focus-border);
   outline: none;
   box-shadow: none;
@@ -1693,6 +1797,57 @@ html {
   text-transform: uppercase;
   text-align: left;
 }
+/* One header for the whole projects region: the folder glyph that used to sit
+   on every project name now labels the section, and carries the only door to
+   the projects page a phone has. */
+.mobile-nav-projects-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  padding: 14px 4px 5px 12px;
+  color: var(--cmp-ink-faint);
+  font-family: var(--font-sans);
+  font-size: 11px;
+  font-weight: var(--weight-medium);
+  letter-spacing: var(--track-meta);
+  text-transform: uppercase;
+}
+.mobile-nav-projects-head > svg { flex: 0 0 auto; }
+.mobile-nav-projects-head > span { flex: 1 1 auto; min-width: 0; }
+.mobile-nav-projects-all {
+  appearance: none;
+  position: relative;
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  height: 24px;
+  padding: 0 6px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--cmp-ink-faint);
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: var(--weight-medium);
+  letter-spacing: var(--track-meta);
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: background-color var(--dur-micro) linear, color var(--dur-micro) linear;
+}
+.mobile-nav-projects-all:hover { background: var(--cmp-plate-hover); color: var(--cmp-ink-muted); }
+.mobile-nav-projects-all:active { background: var(--cmp-plate-active); color: var(--cmp-ink); transition-duration: 0s; }
+.mobile-nav-projects-all:focus-visible {
+  border-color: var(--cmp-focus-border);
+  outline: none;
+  box-shadow: none;
+}
+.mobile-nav-projects-all[data-active="true"] {
+  background: var(--cmp-plate-active);
+  color: var(--cmp-ink);
+}
+
 .mobile-nav-group-head { cursor: pointer; }
 .mobile-nav-group-head span {
   min-width: 0;
@@ -1779,37 +1934,92 @@ html {
   box-shadow: none;
 }
 
-/* The one divider in the drawer: conversations end, sections begin. */
-.mobile-nav-rule {
-  flex: 0 0 auto;
-  height: 1px;
-  margin: 12px 12px 4px;
-  background: var(--cmp-hairline);
+.mobile-nav-empty {
+  padding: 16px 12px;
+  color: var(--cmp-ink-faint);
+  font-family: var(--font-sans);
+  font-size: 13px;
 }
 
-/* ── Sections: glyph over label, three across ─────────────────────── */
-.mobile-nav-tiles {
+/* ── The pinned footer ────────────────────────────────────────────────
+   Everything that is not a conversation lives here, on one row that never
+   scrolls: who you are signed in as, the way out, what happened while you
+   were away, and the settings gear. It sits on the drawer's own ground and
+   carries the bottom safe-area inset itself, so it reaches the screen edge
+   on a phone with a home bar. */
+.mobile-nav-footer {
   flex: 0 0 auto;
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 4px;
-  padding-bottom: 4px;
+  height: calc(var(--mobile-row-h) + env(safe-area-inset-bottom, 0px));
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  border-top: 1px solid var(--cmp-hairline);
+  background: var(--canvas);
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
-.mobile-nav-tile {
+.mobile-nav-footer-account {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: grid;
+  grid-template-rows: auto auto;
+  align-content: center;
+}
+.mobile-nav-footer-identity {
   appearance: none;
   position: relative;
+  width: 100%;
   min-width: 0;
-  height: var(--mobile-tile-h);
+  height: 24px;
   display: flex;
-  flex-direction: column;
   align-items: center;
-  justify-content: center;
-  gap: 7px;
-  padding: 0 4px;
+  gap: 10px;
+  padding: 0 6px 0 8px;
   border: 1px solid transparent;
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-md);
   background: transparent;
   color: var(--cmp-ink-muted);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: var(--weight-book);
+  letter-spacing: var(--track-body);
+  text-align: left;
+  cursor: pointer;
+  transition: background-color var(--dur-micro) linear, color var(--dur-micro) linear;
+}
+.mobile-nav-footer-identity > svg { flex: 0 0 auto; color: var(--cmp-ink-faint); }
+.mobile-nav-footer-email {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mobile-nav-footer-identity:hover { background: var(--cmp-plate-hover); color: var(--cmp-ink); }
+.mobile-nav-footer-identity:active { background: var(--cmp-plate-active); transition-duration: 0s; }
+.mobile-nav-footer-identity:focus-visible {
+  border-color: var(--cmp-focus-border);
+  outline: none;
+  box-shadow: none;
+}
+.mobile-nav-footer-identity[data-active="true"] {
+  background: var(--cmp-plate-active);
+  color: var(--cmp-ink);
+}
+/* Indented to start under the email rather than under the glyph: it belongs
+   to the account line, it is not a second identity. */
+.mobile-nav-footer-signout {
+  appearance: none;
+  position: relative;
+  justify-self: start;
+  margin-left: 30px;
+  height: 16px;
+  padding: 0 6px;
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid transparent;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--cmp-ink-faint);
   font-family: var(--font-sans);
   font-size: 11px;
   font-weight: var(--weight-medium);
@@ -1817,85 +2027,20 @@ html {
   cursor: pointer;
   transition: background-color var(--dur-micro) linear, color var(--dur-micro) linear;
 }
-.mobile-nav-tile span {
-  max-width: 100%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.mobile-nav-tile:hover { background: var(--cmp-plate-hover); color: var(--cmp-ink); }
-.mobile-nav-tile:active { background: var(--cmp-plate-active); transition-duration: 0s; }
-.mobile-nav-tile:focus-visible {
+.mobile-nav-footer-signout:hover { background: var(--cmp-plate-hover); color: var(--cmp-ink-muted); }
+.mobile-nav-footer-signout:active { background: var(--cmp-plate-active); color: var(--cmp-ink); transition-duration: 0s; }
+.mobile-nav-footer-signout:focus-visible {
   border-color: var(--cmp-focus-border);
   outline: none;
   box-shadow: none;
 }
-.mobile-nav-tile[data-active="true"] {
-  background: var(--cmp-plate-active);
-  color: var(--cmp-ink);
-}
-.mobile-nav-count {
-  position: absolute;
-  top: 9px;
-  right: 12px;
-  min-width: 17px;
-  height: 17px;
-  border-radius: var(--radius-pill);
-  padding: 0 5px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(96, 165, 250, 0.14);
-  color: var(--luca-full);
-  font-family: var(--font-mono);
-  font-size: 11px;
-  letter-spacing: 0;
-}
-
-.mobile-nav-empty {
-  padding: 16px 12px;
-  color: var(--cmp-ink-faint);
-  font-family: var(--font-sans);
-  font-size: 13px;
-}
-.mobile-nav-footer {
+.mobile-nav-footer-actions {
   flex: 0 0 auto;
-  border-top: 1px solid var(--border-faint);
-  padding-top: 12px;
-  display: grid;
-  gap: 8px;
-}
-.mobile-nav-account {
-  min-width: 0;
-  min-height: var(--mobile-row-h);
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 0 4px 0 12px;
-  color: var(--cmp-ink-muted);
+  gap: 2px;
 }
-.mobile-nav-account > svg { flex: 0 0 auto; color: var(--cmp-ink-faint); }
-.mobile-nav-account-copy {
-  min-width: 0;
-  flex: 1 1 auto;
-}
-.mobile-nav-account-name {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-family: var(--font-sans);
-  font-size: 14px;
-  color: var(--cmp-ink);
-}
-.mobile-nav-account-sub {
-  font-family: var(--font-sans);
-  font-size: 12px;
-  color: var(--cmp-ink-faint);
-  margin-top: 1px;
-}
-/* Settings: account-shaped, so it rides the account row instead of being a
-   seventh tile alone on its own line. Same five states as the tiles. */
-.mobile-nav-account-settings {
+.mobile-nav-footer-btn {
   appearance: none;
   position: relative;
   flex: 0 0 auto;
@@ -1912,22 +2057,33 @@ html {
   cursor: pointer;
   transition: background-color var(--dur-micro) linear, color var(--dur-micro) linear;
 }
-.mobile-nav-account-settings:hover { background: var(--cmp-plate-hover); color: var(--cmp-ink); }
-.mobile-nav-account-settings:active { background: var(--cmp-plate-active); transition-duration: 0s; }
-.mobile-nav-account-settings:focus-visible {
+.mobile-nav-footer-btn:hover { background: var(--cmp-plate-hover); color: var(--cmp-ink); }
+.mobile-nav-footer-btn:active { background: var(--cmp-plate-active); transition-duration: 0s; }
+.mobile-nav-footer-btn:focus-visible {
   border-color: var(--cmp-focus-border);
   outline: none;
   box-shadow: none;
 }
-.mobile-nav-account-settings[data-active="true"] {
+.mobile-nav-footer-btn[data-active="true"] {
   background: var(--cmp-plate-active);
   color: var(--cmp-ink);
 }
-.mobile-nav-signout {
+.mobile-nav-count {
+  position: absolute;
+  top: 3px;
+  right: 1px;
+  min-width: 17px;
+  height: 17px;
+  border-radius: var(--radius-pill);
+  padding: 0 5px;
+  display: inline-flex;
+  align-items: center;
   justify-content: center;
-  min-height: 40px;
-  color: var(--text-ghost);
-  border: 1px solid var(--border-faint);
+  background: rgba(96, 165, 250, 0.14);
+  color: var(--luca-full);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0;
 }
 
 @media (max-width: 767px) {
@@ -12739,8 +12895,14 @@ a.luca-download-trigger {
   .mobile-nav-signout,
   .mobile-thread-row,
   .mobile-nav-more,
-  .mobile-nav-tile,
-  .mobile-nav-account-settings,
+  .mobile-nav-agent-menu,
+  .mobile-nav-agent-page,
+  .mobile-nav-agent-switch,
+  .mobile-nav-agent-switch-chevron,
+  .mobile-nav-projects-all,
+  .mobile-nav-footer-identity,
+  .mobile-nav-footer-signout,
+  .mobile-nav-footer-btn,
   .mobile-nav-group-head,
   .mobile-nav-group-chevron,
   .mobile-agent-row-chevron,

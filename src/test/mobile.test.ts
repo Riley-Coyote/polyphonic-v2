@@ -110,49 +110,98 @@ describe('phone chrome', () => {
 
 describe('the conversations drawer', () => {
   const drawer = () => readRepoFile('src/components/mobile/MobileNavDrawer.tsx');
-  const STUDIO_SECTION_COUNT = (
-    drawer().slice(
-      drawer().indexOf('const STUDIO_SECTIONS'),
-      drawer().indexOf('];', drawer().indexOf('const STUDIO_SECTIONS')),
-    ).match(/\{ label:/g) ?? []
-  ).length;
 
-  it('puts conversations above sections, not under a settings accordion', () => {
+  it('spends the drawer on three regions, with only the middle scrolling', () => {
     const src = drawer();
-    const threads = src.indexOf('className="mobile-nav-threads"');
-    const tiles = src.indexOf('className="mobile-nav-tiles"');
-    expect(threads).toBeGreaterThan(-1);
-    expect(tiles).toBeGreaterThan(threads);
-
-    // The twelve-page settings accordion is gone; the gear goes to its root.
-    expect(src).not.toContain('SETTINGS_ROUTES');
-    expect(src).not.toContain('settingsOpen');
-    expect(src).toContain("go('/settings')");
-    // "Chat" is not a tile — the conversations are the surface above it.
-    expect(src).not.toMatch(/label: 'Chat'/);
-  });
-
-  it('keeps the tile grid whole instead of stranding Settings on its own row', () => {
-    const src = drawer();
-    const tiles = src.indexOf('className="mobile-nav-tiles"');
-    const grid = src.slice(tiles, src.indexOf('</nav>', tiles));
-    // Six tiles in studio: Activity plus the five studio sections. Settings is
-    // not among them — a seventh tile would sit alone on a third row.
-    expect(STUDIO_SECTION_COUNT).toBe(5);
-    expect(grid).not.toContain('Settings');
-    // It rides the account row in the footer, with the tiles' five states.
-    const footer = src.slice(src.indexOf('className="mobile-nav-footer"'));
-    expect(footer).toContain('mobile-nav-account-settings');
-    expect(footer).toContain("aria-label=\"Settings\"");
+    const scroll = src.indexOf('className="mobile-nav-scroll"');
+    const footer = src.indexOf('className="mobile-nav-footer"');
+    expect(scroll).toBeGreaterThan(-1);
+    // Search is pinned above the scroller; the agent row, New chat and the
+    // conversations are inside it; the footer is outside it, below.
+    expect(src.indexOf('className="mobile-nav-search"')).toBeLessThan(scroll);
+    for (const inside of ['mobile-agent-row', 'mobile-nav-primary', 'className="mobile-nav-threads"']) {
+      expect(src.indexOf(inside)).toBeGreaterThan(scroll);
+      expect(src.indexOf(inside)).toBeLessThan(footer);
+    }
+    expect(footer).toBeGreaterThan(scroll);
 
     const styles = readRepoFile('src/index.css');
-    for (const state of [':hover', ':active', ':focus-visible', '[data-active="true"]']) {
-      expect(styles).toContain(`.mobile-nav-account-settings${state}`);
-    }
-    expect(styles).toMatch(/\.mobile-nav-account \{[^}]*min-height: var\(--mobile-row-h\)/);
-    // 40px drawn, 44px hit — same as the app bar's icon buttons.
-    expect(styles).toMatch(/\.mobile-nav-account-settings \{[^}]*width: 40px/);
-    expect(styles).toContain('.mobile-nav-account-settings::after');
+    expect(styles).toMatch(/\.mobile-nav-scroll \{[^}]*overflow-y: auto/);
+    expect(styles).toMatch(/\.mobile-nav-footer \{[^}]*flex: 0 0 auto/);
+    // The footer reaches the screen edge: it owns the bottom inset, the
+    // drawer no longer pads it away.
+    expect(styles).toMatch(/\.mobile-nav-footer \{[^}]*padding-bottom: env\(safe-area-inset-bottom, 0px\)/);
+    expect(styles).toMatch(/\.mobile-nav-drawer \{[^}]*padding: calc\(10px \+ env\(safe-area-inset-top\)\) 12px 0;/);
+  });
+
+  it('retires the section tile grid', () => {
+    const src = drawer();
+    expect(src).not.toContain('mobile-nav-tile');
+    expect(src).not.toContain('mobile-nav-rule');
+    expect(src).not.toContain('STUDIO_SECTIONS');
+    const styles = readRepoFile('src/index.css');
+    expect(styles).not.toContain('.mobile-nav-tile');
+    expect(styles).not.toContain('.mobile-nav-rule');
+    expect(styles).not.toContain('--mobile-tile-h');
+  });
+
+  it("puts the agent's own pages behind the agent's row", () => {
+    const src = drawer();
+    const pages = src.slice(src.indexOf('const STUDIO_AGENT_PAGES'), src.indexOf('];', src.indexOf('const STUDIO_AGENT_PAGES')));
+    for (const label of ['Memory', 'Mind', 'Journal']) expect(pages).toContain(`label: '${label}'`);
+    // Projects and Profile left the list: one is the All link, one the footer.
+    expect(pages).not.toContain("label: 'Projects'");
+    expect(pages).not.toContain("label: 'Profile'");
+
+    const menu = src.slice(src.indexOf('mobile-nav-agent-menu'), src.indexOf('mobile-nav-primary'));
+    expect(menu).toContain('mobile-nav-agent-page');
+    expect(menu).toContain('mobile-nav-agent-rule');
+    expect(menu).toContain('Switch agent');
+    // Switching an agent re-points those pages; it does not close the drawer.
+    expect(menu).toContain('mobile-agent-scope-option');
+    const select = src.slice(src.indexOf('const handleSelectAgentScope'), src.indexOf('const handleSignOut'));
+    expect(select).toContain('setActiveAgent(id)');
+    expect(select).not.toContain('close()');
+
+    const styles = readRepoFile('src/index.css');
+    // One-shot grid-rows toggle, and collapsed content leaves the tab order.
+    expect(styles).toMatch(/\.mobile-nav-agent-menu \{[^}]*grid-template-rows: 0fr/);
+    expect(styles).toMatch(/\.mobile-nav-agent-menu \{[^}]*transition: grid-template-rows var\(--dur-fast\) var\(--ease-out\)/);
+    expect(styles).toMatch(/\.mobile-nav-agent-menu-clip \{[^}]*visibility: hidden/);
+    expect(styles).toMatch(/\.mobile-nav-agent-page,\s*\n\.mobile-nav-agent-switch \{[^}]*min-height: 40px/);
+  });
+
+  it('gives the projects region its one door to the projects page', () => {
+    const src = drawer();
+    expect(src).toContain('mobile-nav-projects-head');
+    const head = src.slice(src.indexOf('mobile-nav-projects-head'), src.indexOf('projectGroups.map'));
+    expect(head).toContain('mobile-nav-projects-all');
+    expect(head).toContain("go('/projects')");
+    // No second Projects entry anywhere else in the drawer.
+    expect(src.match(/go\('\/projects'\)/g)?.length).toBe(1);
+  });
+
+  it('pins the account, activity and settings into a footer', () => {
+    const src = drawer();
+    const footer = src.slice(src.indexOf('className="mobile-nav-footer"'));
+    expect(footer).toContain('mobile-nav-footer-identity');
+    expect(footer).toContain("go('/profile')");
+    expect(footer).toContain('mobile-nav-footer-signout');
+    expect(footer).toContain('handleOpenActivity');
+    expect(footer).toContain('mobile-nav-count');
+    expect(footer).toContain('aria-label="Settings"');
+    expect(footer).toContain("go('/settings')");
+
+    const styles = readRepoFile('src/index.css');
+    expect(styles).toMatch(/\.mobile-nav-footer \{[^}]*height: calc\(var\(--mobile-row-h\) \+ env\(safe-area-inset-bottom, 0px\)\)/);
+    expect(styles).toMatch(/\.mobile-nav-footer \{[^}]*border-top: 1px solid var\(--cmp-hairline\)/);
+    expect(styles).toMatch(/\.mobile-nav-footer-btn \{[^}]*width: 40px/);
+    // 40px drawn, 44px hit — the sign-out link takes the 32px its cell has.
+    const coarse = mediaBlocks(styles, /pointer: coarse/).map((b) => b.body).join('\n');
+    expect(coarse).toContain('.mobile-nav-footer-btn::after');
+    expect(coarse).toContain('.mobile-nav-agent-page::after');
+    expect(coarse).toContain('.mobile-nav-projects-all::after');
+    expect(coarse).toMatch(/\.mobile-nav-footer-signout::after \{[^}]*height: 32px/);
   });
 
   it('reuses the desktop grouping rather than inventing a second one', () => {
@@ -174,9 +223,7 @@ describe('the conversations drawer', () => {
     expect(src).not.toContain('Journal · Memory · Mind');
     expect(src).not.toContain('mobile-agent-scope-trigger');
     expect(src).toContain('mobile-agent-row');
-    // The options list it opens is the same list, same behaviour.
     expect(src).toContain('handleSelectAgentScope');
-    expect(src).toContain('mobile-agent-scope-option');
 
     const styles = readRepoFile('src/index.css');
     expect(styles).toMatch(/\.mobile-agent-row \{[^}]*height: var\(--mobile-agent-row-h\)/);
@@ -184,20 +231,33 @@ describe('the conversations drawer', () => {
     expect(styles).not.toContain('.mobile-agent-scope-kicker');
   });
 
-  it('sizes every row and tile from a token, with five states on each', () => {
+  it('sizes every row from a token, with five states on each', () => {
     const styles = readRepoFile('src/index.css');
     expect(styles).toContain('--mobile-row-h:        var(--touch-target)');
-    expect(styles).toContain('--mobile-tile-h:       64px');
-    for (const sel of ['.mobile-thread-row', '.mobile-nav-tile']) {
+    for (const sel of [
+      '.mobile-thread-row',
+      '.mobile-nav-footer-btn',
+      '.mobile-nav-footer-identity',
+    ]) {
       expect(styles).toContain(`${sel}:hover`);
       expect(styles).toContain(`${sel}:active`);
       expect(styles).toContain(`${sel}:focus-visible`);
       expect(styles).toContain(`${sel}[data-active="true"]`);
     }
+    for (const sel of ['.mobile-nav-agent-switch', '.mobile-nav-projects-all', '.mobile-nav-footer-signout']) {
+      expect(styles).toContain(`${sel}:hover`);
+      expect(styles).toContain(`${sel}:active`);
+      expect(styles).toContain(`${sel}:focus-visible`);
+    }
     // Focus is the element's own border brightening in place — never a ring.
     const row = styles.slice(styles.indexOf('.mobile-thread-row:focus-visible'), styles.indexOf('.mobile-thread-row[data-active'));
     expect(row).toContain('border-color: var(--cmp-focus-border)');
     expect(row).toContain('outline: none');
+    // The one-shot toggles collapse under reduced motion.
+    const reduced = mediaBlocks(styles, /prefers-reduced-motion/).map((b) => b.body).join('\n');
+    for (const sel of ['.mobile-nav-agent-menu', '.mobile-nav-footer-btn', '.mobile-nav-agent-switch-chevron']) {
+      expect(reduced).toContain(sel);
+    }
   });
 
   it('keeps both dev harnesses behind import.meta.env.DEV', () => {

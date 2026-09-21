@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import MobileAppBar from '@/components/mobile/MobileAppBar';
 import MobileNavDrawer from '@/components/mobile/MobileNavDrawer';
+import { useAgentScopeStore } from '@/stores/agentScopeStore';
 import { useInterfaceModeStore } from '@/stores/interfaceModeStore';
 import { useMobileShellStore } from '@/stores/mobileShellStore';
 import { useNotificationStore, type ThoughtInitiation } from '@/stores/notificationStore';
@@ -21,6 +22,10 @@ import { useThreadStore, type Thread } from '@/stores/threadStore';
  *
  * `?inset=47` paints a simulated safe-area inset, which is the only way to see
  * the standalone/Dynamic Island app-bar height in a desktop browser.
+ * `?drawer=open` opens the drawer on load; `?dropdown=open` also opens the
+ * agent dropdown, and `?dropdown=switch` expands "Switch agent" inside it.
+ * Those last two click the real controls rather than reaching into the
+ * drawer's state, so what is photographed is what a thumb would produce.
  */
 
 const NOW = Date.now();
@@ -84,23 +89,25 @@ function makeProject(i: number): Project {
   };
 }
 
-/* ~70 threads spread across every bucket the grouping produces, so the
-   headers, the 60-row page and "Show older" all have something to do. */
+/* ~130 threads spread across every bucket the grouping produces, so the
+   headers, the 60-row page and "Show older" all have something to do — and
+   so the list is long enough that a footer which scrolled would be lost. */
 function buildThreads(): Thread[] {
   const rows: Thread[] = [];
   let i = 0;
   const push = (count: number, ageDays: number, projectId: string | null) => {
     for (let n = 0; n < count; n += 1) rows.push(makeThread(i++, ageDays, projectId));
   };
-  push(4, 0, 'fixture-project-0');
-  push(3, 1.2, 'fixture-project-1');
-  push(2, 5, 'fixture-project-2');
-  push(6, 0, null);       // Today
-  push(5, 1, null);       // Yesterday
-  push(9, 4, null);       // Previous 7 Days
-  push(14, 18, null);     // Previous 30 Days
-  push(16, 55, null);     // month buckets
-  push(11, 130, null);
+  push(6, 0, 'fixture-project-0');
+  push(5, 1.2, 'fixture-project-1');
+  push(3, 5, 'fixture-project-2');
+  push(9, 0, null);       // Today
+  push(8, 1, null);       // Yesterday
+  push(14, 4, null);      // Previous 7 Days
+  push(24, 18, null);     // Previous 30 Days
+  push(31, 55, null);     // month buckets
+  push(22, 95, null);
+  push(18, 130, null);
   return rows;
 }
 
@@ -120,6 +127,18 @@ function seedStores(threads: Thread[]) {
   useProjectStore.setState({
     projects: [0, 1, 2].map(makeProject),
     loadProjects: async () => {},
+  });
+  // More than one agent, so "Switch agent" has something to switch to. The
+  // auth store is deliberately NOT seeded: a fake signed-in user wakes the
+  // first-run gate, which queries Supabase and fills the console with 400s.
+  // The footer therefore shows its signed-out "Account" label here.
+  useAgentScopeStore.setState({
+    activeAgentId: 'luca',
+    availableAgents: [
+      { id: 'luca', name: 'Luca' },
+      { id: 'fixture-agent-vesper', name: 'Vesper' },
+      { id: 'fixture-agent-tallow', name: 'Tallow' },
+    ],
   });
   // Studio is the full navigation set; companion/guided show a reduced one.
   // Photographing the full set means the harness shows every tile.
@@ -149,6 +168,25 @@ export default function MobileNavHarness() {
   useEffect(() => {
     setInset(new URLSearchParams(window.location.search).get('inset') === '47');
   }, []);
+
+  // Open the drawer, and optionally the dropdown inside it, by clicking the
+  // real controls once they have mounted — harness-only stagecraft.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const dropdown = params.get('dropdown');
+    if (params.get('drawer') !== 'open' && !dropdown) return undefined;
+    openDrawer();
+    const frame = window.requestAnimationFrame(() => {
+      if (!dropdown) return;
+      document.querySelector<HTMLButtonElement>('.mobile-agent-row')?.click();
+      if (dropdown === 'switch') {
+        window.requestAnimationFrame(() => {
+          document.querySelector<HTMLButtonElement>('.mobile-nav-agent-switch')?.click();
+        });
+      }
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [openDrawer]);
 
   return (
     <div

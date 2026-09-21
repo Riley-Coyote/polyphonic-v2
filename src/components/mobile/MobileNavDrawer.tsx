@@ -7,14 +7,13 @@ import {
   Brain,
   ChevronDown,
   ChevronRight,
-  CircleUserRound,
-  FolderKanban,
   Folder,
   NotebookPen,
   Plus,
   Search,
   Settings,
   Sparkles,
+  User,
   X,
 } from 'lucide-react';
 import { useDialogFocus } from '@/hooks/useDialogFocus';
@@ -29,21 +28,23 @@ import { useProjectStore, sortProjects, threadsForProject } from '@/stores/proje
 import { groupThreadsByDate, type ThreadGroup } from '@/lib/threadGrouping';
 import { shouldShowStudioNavigation } from '@/lib/interfaceMode';
 
-/* The drawer is a conversations list that happens to also reach the app's
-   sections — not an app menu with the conversations buried under it. Sections
-   are the tile grid at the bottom; "Chat" is not among them, because the
-   thing Chat would open is the list you are already standing in. */
-const STUDIO_SECTIONS = [
+/* Three regions: a pinned header, a scrolling conversation list, a pinned
+   footer. The drawer IS the conversation list — with many chats, anything
+   parked under it is unreachable, so the account and the app's own surfaces
+   sit in a footer that never scrolls away.
+
+   Memory, Mind and Journal are the *agent's* pages, so they live inside the
+   agent dropdown next to "Switch agent" rather than in a tile grid: which
+   memory you are looking at depends on whose it is. */
+const STUDIO_AGENT_PAGES = [
   { label: 'Memory', path: '/memory', icon: Archive },
   { label: 'Mind', path: '/mind', icon: Brain },
   { label: 'Journal', path: '/journal', icon: NotebookPen },
-  { label: 'Projects', path: '/projects', icon: FolderKanban },
-  { label: 'Profile', path: '/profile', icon: CircleUserRound },
 ];
 
 // Companion + guided mirror the desktop Rail's reduced surface set. Notebook
-// points at /notebook directly so the URL, tile label and page header agree.
-const SIMPLE_SECTIONS = [
+// points at /notebook directly so the URL, row label and page header agree.
+const SIMPLE_AGENT_PAGES = [
   { label: 'Notebook', path: '/notebook', icon: NotebookPen },
   { label: 'Memory', path: '/memory', icon: Archive },
   { label: 'Agents', path: '/settings/agents', icon: Bot },
@@ -88,14 +89,15 @@ export default function MobileNavDrawer() {
   const setActiveAgent = useAgentScopeStore((s) => s.setActiveAgent);
   const interfaceMode = useInterfaceModeStore((s) => s.mode);
   const [query, setQuery] = useState('');
-  const [agentScopeOpen, setAgentScopeOpen] = useState(false);
+  const [agentMenuOpen, setAgentMenuOpen] = useState(false);
+  const [switchAgentOpen, setSwitchAgentOpen] = useState(false);
   const [collapsedProjects, setCollapsedProjects] = useState<Record<string, boolean>>({});
   const [visibleCount, setVisibleCount] = useState(THREAD_PAGE);
   const activeAgentName = useMemo(
     () => availableAgents.find((agent) => agent.id === activeAgentId)?.name ?? 'Luca',
     [activeAgentId, availableAgents],
   );
-  const sections = shouldShowStudioNavigation(interfaceMode) ? STUDIO_SECTIONS : SIMPLE_SECTIONS;
+  const agentPages = shouldShowStudioNavigation(interfaceMode) ? STUDIO_AGENT_PAGES : SIMPLE_AGENT_PAGES;
 
   useEffect(() => {
     if (!open) return;
@@ -106,6 +108,13 @@ export default function MobileNavDrawer() {
   useEffect(() => {
     close();
   }, [close, location.pathname]);
+
+  // The dropdown is a state of an open drawer, not something that survives it.
+  useEffect(() => {
+    if (open) return;
+    setAgentMenuOpen(false);
+    setSwitchAgentOpen(false);
+  }, [open]);
 
   // A new search is a new list — page back to the first 60 rows.
   useEffect(() => { setVisibleCount(THREAD_PAGE); }, [query]);
@@ -119,7 +128,15 @@ export default function MobileNavDrawer() {
     };
   }, [open]);
 
-  const handleEscape = useCallback(() => close(), [close]);
+  const handleEscape = useCallback(() => {
+    // Esc closes the dropdown first, the drawer second.
+    if (agentMenuOpen) {
+      setAgentMenuOpen(false);
+      setSwitchAgentOpen(false);
+      return;
+    }
+    close();
+  }, [agentMenuOpen, close]);
   useDialogFocus({
     active: open,
     containerRef: drawerRef,
@@ -149,6 +166,10 @@ export default function MobileNavDrawer() {
     projectGroups.reduce((n, entry) => n + entry.threads.length, 0) +
     dateGroups.reduce((n, group) => n + group.threads.length, 0);
   const hasMore = totalRows > visibleCount;
+  // The projects page has no other door on a phone, so its header stands even
+  // with nothing under it — except while searching, where an empty group head
+  // would be a lie about the results.
+  const showProjectsHead = projectGroups.length > 0 || !query.trim();
 
   const take = (rows: Thread[], spent: number): Thread[] =>
     rows.slice(0, Math.max(0, visibleCount - spent));
@@ -171,11 +192,11 @@ export default function MobileNavDrawer() {
     close();
   };
 
+  // Choosing an agent re-points the pages above it; the dropdown stays open so
+  // the row label can be seen to change and Memory is one tap away.
   const handleSelectAgentScope = (id: string) => {
     if (!id) return;
     if (id !== activeAgentId) setActiveAgent(id);
-    setAgentScopeOpen(false);
-    close();
   };
 
   const handleSignOut = async () => {
@@ -238,59 +259,118 @@ export default function MobileNavDrawer() {
           />
         </label>
 
-        {/* The active agent is context, not a feature. One dot, one name, one
-            chevron — no card, no eyebrow, no list of what it can reach. */}
-        <section className="mobile-agent-scope" aria-label="Agent scope">
-          <button
-            type="button"
-            className="mobile-agent-row"
-            onClick={() => setAgentScopeOpen((value) => !value)}
-            aria-expanded={agentScopeOpen}
-          >
-            <span className="mobile-agent-row-dot" aria-hidden="true" />
-            <span className="mobile-agent-row-name">{activeAgentName}</span>
-            <ChevronDown
-              className="mobile-agent-row-chevron"
-              size={12}
-              strokeWidth={1.8}
-              aria-hidden="true"
-              style={{ transform: agentScopeOpen ? 'rotate(180deg)' : 'none' }}
-            />
+        <div className="mobile-nav-scroll">
+          {/* The active agent is context, not a feature. One dot, one name, one
+              chevron — and behind the chevron, the pages that belong to it. */}
+          <section className="mobile-agent-scope" aria-label="Agent scope">
+            <button
+              type="button"
+              className="mobile-agent-row"
+              onClick={() => {
+                setAgentMenuOpen((value) => {
+                  if (value) setSwitchAgentOpen(false);
+                  return !value;
+                });
+              }}
+              aria-expanded={agentMenuOpen}
+            >
+              <span className="mobile-agent-row-dot" aria-hidden="true" />
+              <span className="mobile-agent-row-name">{activeAgentName}</span>
+              <ChevronDown
+                className="mobile-agent-row-chevron"
+                size={12}
+                strokeWidth={1.8}
+                aria-hidden="true"
+                style={{ transform: agentMenuOpen ? 'rotate(180deg)' : 'none' }}
+              />
+            </button>
+
+            <div className="mobile-nav-agent-menu" data-open={agentMenuOpen ? 'true' : undefined}>
+              <div className="mobile-nav-agent-menu-clip">
+                <div className="mobile-nav-agent-menu-inner">
+                  {agentPages.map(({ label, path, icon: Icon }) => (
+                    <button
+                      key={path}
+                      type="button"
+                      className="mobile-nav-agent-page"
+                      data-active={isActiveRoute(location.pathname, path) ? 'true' : undefined}
+                      onClick={() => go(path)}
+                      aria-current={isActiveRoute(location.pathname, path) ? 'page' : undefined}
+                    >
+                      <Icon size={16} strokeWidth={1.7} aria-hidden="true" />
+                      <span>{label}</span>
+                    </button>
+                  ))}
+
+                  <div className="mobile-nav-agent-rule" aria-hidden="true" />
+
+                  <button
+                    type="button"
+                    className="mobile-nav-agent-switch"
+                    onClick={() => setSwitchAgentOpen((value) => !value)}
+                    aria-expanded={switchAgentOpen}
+                  >
+                    <span>Switch agent</span>
+                    <ChevronRight
+                      className="mobile-nav-agent-switch-chevron"
+                      size={12}
+                      strokeWidth={1.8}
+                      aria-hidden="true"
+                      style={{ transform: switchAgentOpen ? 'rotate(90deg)' : 'none' }}
+                    />
+                  </button>
+
+                  {switchAgentOpen && (
+                    <div className="mobile-agent-scope-list" role="listbox" aria-label="Choose active agent">
+                      {availableAgents.map((agent) => {
+                        const active = agent.id === activeAgentId;
+                        return (
+                          <button
+                            key={agent.id}
+                            type="button"
+                            className="mobile-agent-scope-option"
+                            data-active={active ? 'true' : undefined}
+                            onClick={() => handleSelectAgentScope(agent.id)}
+                            role="option"
+                            aria-selected={active}
+                          >
+                            <span className="mobile-agent-scope-option-dot" aria-hidden="true" />
+                            <span>{agent.name}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <button type="button" className="mobile-nav-primary" onClick={handleNewChat}>
+            <Plus size={18} strokeWidth={1.8} />
+            <span>New chat</span>
           </button>
 
-          {agentScopeOpen && (
-            <div className="mobile-agent-scope-list" role="listbox" aria-label="Choose active agent">
-              {availableAgents.map((agent) => {
-                const active = agent.id === activeAgentId;
-                return (
-                  <button
-                    key={agent.id}
-                    type="button"
-                    className="mobile-agent-scope-option"
-                    data-active={active ? 'true' : undefined}
-                    onClick={() => handleSelectAgentScope(agent.id)}
-                    role="option"
-                    aria-selected={active}
-                  >
-                    <span className="mobile-agent-scope-option-dot" aria-hidden="true" />
-                    <span>{agent.name}</span>
-                  </button>
-                );
-              })}
-            </div>
-          )}
-        </section>
-
-        <button type="button" className="mobile-nav-primary" onClick={handleNewChat}>
-          <Plus size={18} strokeWidth={1.8} />
-          <span>New chat</span>
-        </button>
-
-        <div className="mobile-nav-scroll">
           <div className="mobile-nav-threads">
             {totalRows === 0 && (
               <div className="mobile-nav-empty">
                 {query.trim() ? 'No matching conversations.' : 'No conversations yet.'}
+              </div>
+            )}
+
+            {showProjectsHead && (
+              <div className="mobile-nav-projects-head">
+                <Folder size={12} strokeWidth={1.8} aria-hidden="true" />
+                <span>Projects</span>
+                <button
+                  type="button"
+                  className="mobile-nav-projects-all"
+                  onClick={() => go('/projects')}
+                  aria-label="All projects"
+                >
+                  <span>All</span>
+                  <ChevronRight size={12} strokeWidth={1.8} aria-hidden="true" />
+                </button>
               </div>
             )}
 
@@ -309,7 +389,6 @@ export default function MobileNavDrawer() {
                       setCollapsedProjects((prev) => ({ ...prev, [project.id]: !prev[project.id] }))
                     }
                   >
-                    <Folder size={12} strokeWidth={1.8} aria-hidden="true" />
                     <span>{project.name}</span>
                     <ChevronRight
                       className="mobile-nav-group-chevron"
@@ -346,44 +425,40 @@ export default function MobileNavDrawer() {
               </button>
             )}
           </div>
-
-          <div className="mobile-nav-rule" aria-hidden="true" />
-
-          <nav className="mobile-nav-tiles" aria-label="Sections">
-            <button type="button" className="mobile-nav-tile" onClick={handleOpenActivity}>
-              <Activity size={18} strokeWidth={1.7} aria-hidden="true" />
-              <span>Activity</span>
-              {pendingCount > 0 && <span className="mobile-nav-count">{pendingCount}</span>}
-            </button>
-            {sections.map(({ label, path, icon: Icon }) => (
-              <button
-                key={path}
-                type="button"
-                className="mobile-nav-tile"
-                data-active={isActiveRoute(location.pathname, path) ? 'true' : undefined}
-                onClick={() => go(path)}
-                aria-current={isActiveRoute(location.pathname, path) ? 'page' : undefined}
-              >
-                <Icon size={18} strokeWidth={1.7} aria-hidden="true" />
-                <span>{label}</span>
-              </button>
-            ))}
-          </nav>
         </div>
 
+        {/* The footer is pinned: with two hundred conversations above it, an
+            account row that scrolls is an account row you cannot reach. */}
         <div className="mobile-nav-footer">
-          {/* Settings lives here rather than as a seventh tile stranded on a
-              row of its own: it is account-shaped, and the account row is
-              already the one thing at the bottom of the drawer. */}
-          <div className="mobile-nav-account">
-            <Bot size={18} strokeWidth={1.7} aria-hidden="true" />
-            <div className="mobile-nav-account-copy">
-              <div className="mobile-nav-account-name">{user?.email || 'Account'}</div>
-              <div className="mobile-nav-account-sub">signed in</div>
-            </div>
+          <div className="mobile-nav-footer-account">
             <button
               type="button"
-              className="mobile-nav-account-settings"
+              className="mobile-nav-footer-identity"
+              data-active={isActiveRoute(location.pathname, '/profile') ? 'true' : undefined}
+              onClick={() => go('/profile')}
+              aria-current={isActiveRoute(location.pathname, '/profile') ? 'page' : undefined}
+            >
+              <User size={18} strokeWidth={1.7} aria-hidden="true" />
+              <span className="mobile-nav-footer-email">{user?.email || 'Account'}</span>
+            </button>
+            <button type="button" className="mobile-nav-footer-signout" onClick={handleSignOut}>
+              Sign out
+            </button>
+          </div>
+
+          <div className="mobile-nav-footer-actions">
+            <button
+              type="button"
+              className="mobile-nav-footer-btn"
+              onClick={handleOpenActivity}
+              aria-label="Activity"
+            >
+              <Activity size={18} strokeWidth={1.7} aria-hidden="true" />
+              {pendingCount > 0 && <span className="mobile-nav-count">{pendingCount}</span>}
+            </button>
+            <button
+              type="button"
+              className="mobile-nav-footer-btn"
               data-active={isActiveRoute(location.pathname, '/settings') ? 'true' : undefined}
               onClick={() => go('/settings')}
               aria-label="Settings"
@@ -392,9 +467,6 @@ export default function MobileNavDrawer() {
               <Settings size={18} strokeWidth={1.7} aria-hidden="true" />
             </button>
           </div>
-          <button type="button" className="mobile-nav-signout" onClick={handleSignOut}>
-            Sign out
-          </button>
         </div>
       </aside>
     </>
