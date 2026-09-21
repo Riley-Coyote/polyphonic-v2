@@ -12,6 +12,23 @@ export default defineConfig(() => ({
     },
   },
   plugins: [react()],
+  define: {
+    // Publish builds compile from git, where .env is gitignored, so
+    // VITE_SUPABASE_URL / VITE_SUPABASE_PUBLISHABLE_KEY would otherwise bake in
+    // as `undefined` and the app crashes at startup ("supabaseUrl is required").
+    // These are publishable client values (one backend serves preview + live),
+    // so a literal fallback is safe; real env still wins when present.
+    ...(process.env.VITE_SUPABASE_URL
+      ? {}
+      : {
+          "import.meta.env.VITE_SUPABASE_URL": JSON.stringify(
+            "https://kknchdnrujzheulqzowv.supabase.co",
+          ),
+          "import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY": JSON.stringify(
+            "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtrbmNoZG5ydWp6aGV1bHF6b3d2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjM4MTIyMDgsImV4cCI6MjA3OTM4ODIwOH0.hO6owC0XhR7rLuCaBaSOyjDJjZTz3KB5GCMHyzOSaik",
+          ),
+        }),
+  },
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
