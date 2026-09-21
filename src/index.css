@@ -2833,8 +2833,8 @@ html {
 .modes-pop {
   position: fixed;
   min-width: 224px;
-  background: var(--surface-2);
-  border: 1px solid var(--border-faint);
+  background: var(--surface-3);
+  border: 1px solid var(--border-subtle);
   border-radius: 10px;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45), 0 1px 4px rgba(0, 0, 0, 0.25);
   padding: 4px;
