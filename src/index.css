@@ -1921,6 +1921,12 @@ html {
   overflow-y: auto;
   scrollbar-width: thin;
 }
+
+/* Phones: iOS Safari zooms the page when a focused field is set under 16px.
+   The pill grows a few px; the touch-size rules below already allow for it. */
+@media (max-width: 767px) {
+  .cmp-input { font-size: 16px; }
+}
 .cmp-input::placeholder { color: var(--cmp-ink-faint); }
 .cmp-input:focus-visible { outline: none; box-shadow: none; }
 
