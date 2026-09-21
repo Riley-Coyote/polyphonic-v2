@@ -6,6 +6,8 @@ function readRepoFile(path: string): string {
   return readFileSync(join(process.cwd(), path), 'utf8');
 }
 
+const styles0 = () => readRepoFile('src/index.css');
+
 /** Every `@media (max-width: …)` block in the stylesheet, with its body. */
 function mediaBlocks(css: string, match: RegExp): Array<{ head: string; body: string }> {
   const lines = css.split('\n');
@@ -159,6 +161,10 @@ describe('the conversations drawer', () => {
     expect(menu).toContain('Switch agent');
     // Switching an agent re-points those pages; it does not close the drawer.
     expect(menu).toContain('mobile-agent-scope-option');
+    // The options are plain rows on the drawer ground, not a card in a menu.
+    expect(styles0()).toMatch(/\.mobile-agent-scope-list \{[^}]*padding-left: 12px/);
+    expect(styles0()).not.toMatch(/\.mobile-agent-scope-list \{[^}]*background: var\(--surface-3\)/);
+    expect(styles0()).not.toMatch(/\.mobile-agent-scope-list \{[^}]*border: 1px solid/);
     const select = src.slice(src.indexOf('const handleSelectAgentScope'), src.indexOf('const handleSignOut'));
     expect(select).toContain('setActiveAgent(id)');
     expect(select).not.toContain('close()');
@@ -193,15 +199,19 @@ describe('the conversations drawer', () => {
     expect(footer).toContain("go('/settings')");
 
     const styles = readRepoFile('src/index.css');
-    expect(styles).toMatch(/\.mobile-nav-footer \{[^}]*height: calc\(var\(--mobile-row-h\) \+ env\(safe-area-inset-bottom, 0px\)\)/);
+    expect(styles).toMatch(/\.mobile-nav-footer \{[^}]*height: calc\(52px \+ env\(safe-area-inset-bottom, 0px\)\)/);
     expect(styles).toMatch(/\.mobile-nav-footer \{[^}]*border-top: 1px solid var\(--cmp-hairline\)/);
     expect(styles).toMatch(/\.mobile-nav-footer-btn \{[^}]*width: 40px/);
-    // 40px drawn, 44px hit — the sign-out link takes the 32px its cell has.
+    // The stacked cell partitions the 52px exactly, so each line is its own
+    // hit box at every pointer type and neither needs a pseudo-element.
+    expect(styles).toMatch(/\.mobile-nav-footer-account \{[^}]*grid-template-rows: 28px 24px/);
+    expect(styles).toMatch(/\.mobile-nav-footer-identity \{[^}]*height: 28px/);
+    expect(styles).toMatch(/\.mobile-nav-footer-signout \{[^}]*height: 24px/);
     const coarse = mediaBlocks(styles, /pointer: coarse/).map((b) => b.body).join('\n');
     expect(coarse).toContain('.mobile-nav-footer-btn::after');
     expect(coarse).toContain('.mobile-nav-agent-page::after');
     expect(coarse).toContain('.mobile-nav-projects-all::after');
-    expect(coarse).toMatch(/\.mobile-nav-footer-signout::after \{[^}]*height: 32px/);
+    expect(coarse).not.toContain('.mobile-nav-footer-signout::after');
   });
 
   it('reuses the desktop grouping rather than inventing a second one', () => {

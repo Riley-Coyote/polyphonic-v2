@@ -1368,18 +1368,6 @@ html {
     height: var(--touch-target);
     transform: translate(-50%, -50%);
   }
-  /* The sign-out link is the one deliberate exception: it is a secondary
-     line stacked inside a 44px account cell, so it takes the 32px box the
-     cell has room for — grown downwards, into the footer's own padding,
-     rather than upwards where it would swallow the email above it. */
-  .mobile-nav-footer-signout::after {
-    content: '';
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    height: 32px;
-  }
   /* Full-width rows only need the height restored. */
   .mobile-agent-row,
   .mobile-nav-agent-page,
@@ -1691,13 +1679,12 @@ html {
   background: var(--cmp-hairline);
 }
 
+/* Plain rows on the drawer's own ground, indented under "Switch agent" — a
+   bordered plate here would be a card floating inside a menu that has none. */
 .mobile-agent-scope-list {
   display: grid;
   gap: 2px;
-  padding: 4px;
-  border: 1px solid var(--cmp-hairline);
-  border-radius: var(--radius-lg);
-  background: var(--surface-3);
+  padding-left: 12px;
 }
 .mobile-agent-scope-option {
   appearance: none;
@@ -1710,9 +1697,9 @@ html {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 0 10px;
+  padding: 0 12px;
   font-family: var(--font-sans);
-  font-size: 14px;
+  font-size: 13px;
   font-weight: var(--weight-book);
   letter-spacing: var(--track-body);
   text-align: left;
@@ -1949,27 +1936,32 @@ html {
    on a phone with a home bar. */
 .mobile-nav-footer {
   flex: 0 0 auto;
-  height: calc(var(--mobile-row-h) + env(safe-area-inset-bottom, 0px));
+  /* 52, not 44: the account cell stacks two lines, and at 44 the sign-out
+     link's descender sat on the screen edge of any phone without a home
+     bar. The two rows below partition this height exactly — 28 for the
+     identity line, 24 for sign out — so both are their own hit area at
+     every pointer type, with no pseudo-element stealing from its neighbour. */
+  height: calc(52px + env(safe-area-inset-bottom, 0px));
   padding-bottom: env(safe-area-inset-bottom, 0px);
   border-top: 1px solid var(--cmp-hairline);
   background: var(--canvas);
   display: flex;
-  align-items: center;
+  align-items: stretch;
   gap: 8px;
 }
 .mobile-nav-footer-account {
   flex: 1 1 auto;
   min-width: 0;
   display: grid;
-  grid-template-rows: auto auto;
-  align-content: center;
+  grid-template-rows: 28px 24px;
+  align-content: start;
 }
 .mobile-nav-footer-identity {
   appearance: none;
   position: relative;
   width: 100%;
   min-width: 0;
-  height: 24px;
+  height: 28px;
   display: flex;
   align-items: center;
   gap: 10px;
@@ -2010,14 +2002,17 @@ html {
 .mobile-nav-footer-signout {
   appearance: none;
   position: relative;
-  justify-self: start;
-  margin-left: 30px;
-  height: 16px;
-  padding: 0 6px;
+  width: 100%;
+  min-width: 0;
+  height: 24px;
+  /* Text starts under the email, not under the glyph: it belongs to the
+     account line. The row itself is full width, so its plate and its hit
+     area match the identity line above it. */
+  padding: 0 6px 0 36px;
   display: inline-flex;
   align-items: center;
   border: 1px solid transparent;
-  border-radius: var(--radius-pill);
+  border-radius: var(--radius-md);
   background: transparent;
   color: var(--cmp-ink-faint);
   font-family: var(--font-sans);
