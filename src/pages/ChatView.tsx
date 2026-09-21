@@ -560,7 +560,12 @@ export default function ChatView() {
     const vv = window.visualViewport;
     if (!vv) return;
     const onResize = () => {
-      const scroller = document.querySelector('.chat-scroll-area') as HTMLElement | null;
+      // Only follow the bottom if the reader was already there. Yanking the
+      // scroller down every time the keyboard opens threw away the place of
+      // anyone who had scrolled up to read — the same pin the desktop
+      // auto-scroll respects.
+      if (!userPinnedRef.current) return;
+      const scroller = scrollRef.current ?? (document.querySelector('.chat-scroll-area') as HTMLElement | null);
       if (scroller) scroller.scrollTop = scroller.scrollHeight;
     };
     vv.addEventListener('resize', onResize);
@@ -1283,7 +1288,18 @@ export default function ChatView() {
   }, [guardianMessages, guardianStreamingContent]);
 
   useEffect(() => {
-    if (!threadId) return;
+    if (!threadId) {
+      // Bare `/chat` is the empty state, not "whatever was last open". The
+      // early return used to leave the previous thread's messages mounted, so
+      // the drawer's Chat row and New chat both looked like no-ops from
+      // inside a conversation. Dropping the current thread clears `messages`
+      // in the store and the empty state renders.
+      clearHighlightCache();
+      userPinnedRef.current = true;
+      setShowScrollDown(false);
+      setCurrentThread(null);
+      return;
+    }
     // Wipe the per-block syntax-highlight cache so a long session doesn't
     // accumulate completed snippets across every thread the user opens.
     clearHighlightCache();

@@ -82,6 +82,11 @@ const ComposerGallery = lazy(() => import("./pages/ComposerGallery"));
 const ComposerHarness = import.meta.env.DEV
   ? lazy(() => import("./dev/ComposerHarness"))
   : null;
+/* DEV-only mobile drawer + app bar harness. Same guard, same reason: the
+   drawer's conversation list needs ~70 seeded threads to be looked at. */
+const MobileNavHarness = import.meta.env.DEV
+  ? lazy(() => import("./dev/MobileNavHarness"))
+  : null;
 const PublicProfileView = lazy(() => import("./pages/PublicProfileView"));
 const AgentsList = lazy(() => import("./pages/settings/AgentsList"));
 const AgentDetail = lazy(() => import("./pages/settings/AgentDetail"));
@@ -488,6 +493,9 @@ const App = () => (
                 <Route path="/_mockups/composer" element={<ComposerGallery />} />
                 {import.meta.env.DEV && ComposerHarness && (
                   <Route path="/__dev/composer" element={<ComposerHarness />} />
+                )}
+                {import.meta.env.DEV && MobileNavHarness && (
+                  <Route path="/__dev/mobile-nav" element={<MobileNavHarness />} />
                 )}
                 <Route path="/dashboard" element={<Navigate to="/mind" replace />} />
                 {/* /notebook is the simplified vocabulary for /journal —

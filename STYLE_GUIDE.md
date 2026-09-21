@@ -411,6 +411,39 @@ When vektor spawns sub-agents, use the blue spectrum `--v1`/`--v2`/`--v3` with `
 
 ---
 
+## Phones
+
+**The phone breakpoint is 767 px; the coarse-pointer query adds hit areas
+only.** Every phone rule lives in `@media (max-width: 767px)` — the same number
+`useIsMobile()` reads (`innerWidth < 768`). `@media (hover: none) and (pointer:
+coarse)` never changes a size you can see; it only restores targets.
+
+- **A touch target is a hit-box, not a drawing.** Controls are drawn at the size
+  the chrome wants — 40 px in the app bar, 36 px in the composer, 32 px in its
+  toolbar — and each carries a transparent `::after` sized `var(--touch-target)`
+  (44 px). Note that an absolutely positioned box resolves its offsets against
+  the *padding* box, so on a 1 px-bordered control `inset: -6px` is 44 px minus
+  the border: declare the target's size, don't inset toward it.
+- **Nothing under 11 px.** `--settings-mono-size` and the 8.5–10 px desktop meta
+  steps do not survive the trip to a phone. Meta labels, trace buttons and
+  thinking text sit at 11–12 px.
+- **The floor is the app's floor.** Phones do not get `#000`. Pure black leaves
+  nothing darker than the ground, which is why the Observer well once had to be
+  inverted into a raised plane here. The contrast lift on the faint *text* tiers
+  stays; the ground tokens are not overridden.
+- **The app bar is 56 px plus the real inset** — `env(safe-area-inset-top, 0px)`
+  read as it is, never a synthetic `max(…, 10px)` floor. The centre agent
+  selector sets the bar's height, so it is drawn at 40 px like the buttons
+  beside it.
+- **Hover is a mouse state.** Any `:hover` that changes a phone control goes
+  inside `@media (hover: hover)`, or it sticks after the tap.
+- **The drawer is a conversations list**, not an app menu: search, the active
+  agent as a quiet row, New chat, then the conversations grouped the way the
+  desktop sidebar groups them, then the app's sections as a tile grid. The
+  sections are the tail of the drawer, never its head.
+
+---
+
 ## Copywriting voice
 
 ### UI labels

@@ -212,6 +212,16 @@
   --inset-gap:         6px;
   --devbar-height:     0px;
 
+  /* ─── Phones ─────────────────────────────────────────────────────────
+     The phone register. A tap target is 44px because that is the smallest
+     thing a thumb reliably hits; a section tile is 64px because a glyph
+     over a label needs two lines of room; the active-agent row is 36px
+     because it is context, not a control you go looking for. */
+  --touch-target:        44px;
+  --mobile-row-h:        var(--touch-target);
+  --mobile-tile-h:       64px;
+  --mobile-agent-row-h:  36px;
+
   /* ─── Composer — the thin pill and the send moment ──────────────────
      One shared measure for the reading column and the composer, so the
      text you write and the text you read sit on the same axis.
@@ -1131,15 +1141,15 @@ html {
 
 @media (max-width: 767px) {
   :root {
-    --floor: #000000;
-    --canvas: #000000;
-    --surface-1: var(--canvas);
+    /* The floor is NOT overridden here. Phones used to drop every ground
+       token to pure #000, which (a) is off the baseline — the floor is
+       #08080a and never absolute black — and (b) left nothing darker than
+       the ground, so the Observer well had to be inverted into a raised
+       plane to be seen at all. Phones now stand on the app's own floor and
+       the well cuts into it the same way it does on the desktop.
+       The contrast lift below stays: small screens meet glare, and the
+       faint tiers need the extra luminance wherever they land. */
     --surface-2: rgba(255, 255, 255, 0.035);
-    --surface-3: #0f0f12;
-    --bg-deep: #000000;
-    --bg-primary: #000000;
-    --bg-elevated: var(--canvas);
-    --input-bg: #0b0b0d;
 
     --message-max-width: 100dvw;
     /* Mobile contrast lift — raise the faint text tiers toward WCAG AA on
@@ -1153,7 +1163,7 @@ html {
   }
 
   html, body, #root {
-    background: #000;
+    background: var(--canvas);
     color-scheme: dark;
     overscroll-behavior: none;
   }
@@ -1169,7 +1179,7 @@ html {
     flex-direction: column;
     padding: 0;
     gap: 0;
-    background: #000 !important;
+    background: var(--canvas) !important;
     /* Use the *dynamic* viewport height, never Tailwind's h-screen (100vh).
        100vh on iOS Safari is the LARGE viewport, so a bottom-anchored composer
        would sit behind the address bar. 100dvh tracks the visible viewport, and
@@ -1185,29 +1195,31 @@ html {
     min-width: 0;
     max-width: 100dvw;
     min-height: 0;
-    background: #000 !important;
+    background: var(--canvas) !important;
   }
 
   .chat-view {
     width: 100%;
     min-width: 0;
     max-width: 100%;
-    background: #000;
+    background: var(--canvas);
   }
 }
 
 .mobile-app-bar {
   flex: 0 0 auto;
-  /* Clear the status bar / Dynamic Island: safe-area inset + a real gap below
-     it (was only +6px, which jammed the bar against the island). max() floor
-     keeps clearance on non-notch / standalone where the inset can read 0.
-     Wider side padding so the menu / activity buttons aren't on the edge. */
-  min-height: calc(max(env(safe-area-inset-top), 10px) + 60px);
-  padding: calc(max(env(safe-area-inset-top), 10px) + 16px) 14px 6px;
+  /* 56px of chrome, plus exactly the status bar the device actually has.
+     The old rule padded a *synthetic* 10px inset floor plus another 16px on
+     top of a 44px button — 76px in a browser and 125px in standalone, a
+     sixth of the screen spent on a menu button. The inset is honoured as it
+     reads (0 in a browser tab, 47-59 under a Dynamic Island) and the 8px
+     above/below the 40px buttons is the whole rest of the bar. */
+  min-height: calc(env(safe-area-inset-top, 0px) + 56px);
+  padding: calc(env(safe-area-inset-top, 0px) + 8px) 14px 8px;
   display: none;
   align-items: center;
   gap: 8px;
-  background: #000;
+  background: var(--canvas);
   border-bottom: none;
   position: relative;
   z-index: 45;
@@ -1215,9 +1227,9 @@ html {
 
 .mobile-bar-button {
   appearance: none;
-  width: 44px;
-  height: 44px;
-  flex: 0 0 44px;
+  width: 40px;
+  height: 40px;
+  flex: 0 0 40px;
   border: none;
   border-radius: 999px;
   background: transparent;
@@ -1232,7 +1244,14 @@ html {
     background var(--dur-fast) var(--ease-out),
     transform var(--dur-fast) var(--ease-out);
 }
-.mobile-bar-button:hover,
+/* Hover is a mouse state. On a touch screen `:hover` sticks to whatever was
+   tapped last, so the menu button stayed lit after every open. */
+@media (hover: hover) {
+  .mobile-bar-button:hover {
+    color: var(--text-primary);
+    background: rgba(255, 255, 255, 0.045);
+  }
+}
 .mobile-bar-button:focus-visible {
   color: var(--text-primary);
   background: rgba(255, 255, 255, 0.045);
@@ -1314,8 +1333,13 @@ html {
   text-transform: uppercase;
   color: var(--text-whisper);
 }
+/* The selector's own markup and behaviour are untouched (Riley: "leave the
+   top center, that's the agent selector"). Only its height comes down to the
+   bar's new 40px rhythm so it isn't the one child forcing a 60px bar; the
+   44px target is restored as a hit-box below. */
 .mobile-bar-agent-picker .agent-picker-trigger--header {
-  min-height: 44px;
+  position: relative;
+  min-height: 40px;
   max-width: min(52dvw, 220px);
   padding: 0 11px;
   border-radius: 999px;
@@ -1329,6 +1353,36 @@ html {
 .mobile-bar-agent-picker .agent-picker-trigger--header.open {
   background: rgba(255, 255, 255, 0.06);
   border-color: rgba(255, 255, 255, 0.1);
+}
+
+/* A touch target is a hit-box, not a drawing. The bar's controls are drawn at
+   40px — the size the chrome wants — and each carries a transparent 44px box
+   so the finger still lands where WCAG 2.5.5 says it must. */
+@media (hover: none) and (pointer: coarse) {
+  .mobile-bar-button::after,
+  .mobile-nav-icon-btn::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: var(--touch-target);
+    height: var(--touch-target);
+    transform: translate(-50%, -50%);
+  }
+  /* Full-width rows only need the height restored. */
+  .mobile-agent-row,
+  .msg-trace-button { position: relative; }
+  .mobile-agent-row::after,
+  .msg-trace-button::after,
+  .mobile-bar-agent-picker .agent-picker-trigger--header::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 0;
+    right: 0;
+    height: var(--touch-target);
+    transform: translateY(-50%);
+  }
 }
 
 .mobile-nav-backdrop {
@@ -1354,8 +1408,12 @@ html {
   z-index: 131;
   width: min(88dvw, 352px);
   padding: calc(10px + env(safe-area-inset-top)) 12px calc(14px + env(safe-area-inset-bottom));
-  background: #050506;
-  border-right: 1px solid rgba(255, 255, 255, 0.07);
+  /* The drawer is the app's own ground brought forward; the backdrop darkens
+     everything behind it. #050506 was chosen when the phone floor was pure
+     black and the panel had to be the lighter thing — on the real floor it
+     reads as a hole instead of a plane. */
+  background: var(--canvas);
+  border-right: 1px solid var(--cmp-hairline);
   box-shadow: 24px 0 72px rgba(0, 0, 0, 0.62);
   display: flex;
   flex-direction: column;
@@ -1380,7 +1438,8 @@ html {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 2px 2px 0;
+  min-height: var(--mobile-row-h);
+  padding: 0 2px;
   flex: 0 0 auto;
 }
 .mobile-nav-brand {
@@ -1388,7 +1447,8 @@ html {
   display: inline-flex;
   align-items: center;
   gap: 10px;
-  color: var(--text-primary);
+  padding-left: 10px;
+  color: var(--cmp-ink);
   font-family: var(--font-sans);
   font-size: 17px;
   font-weight: var(--weight-medium);
@@ -1398,33 +1458,44 @@ html {
   color: var(--luca-full);
 }
 .mobile-nav-icon-btn {
-  width: 42px;
-  height: 42px;
-  border: none;
-  border-radius: 999px;
+  position: relative;
+  width: 40px;
+  height: 40px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-pill);
   background: transparent;
-  color: var(--text-soft);
+  color: var(--cmp-ink-faint);
   display: inline-flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
+  transition: background-color var(--dur-micro) linear, color var(--dur-micro) linear;
 }
-.mobile-nav-icon-btn:hover,
+.mobile-nav-icon-btn:hover { background: var(--cmp-plate-hover); color: var(--cmp-ink); }
+.mobile-nav-icon-btn:active { background: var(--cmp-plate-active); transition-duration: 0s; }
 .mobile-nav-icon-btn:focus-visible {
-  background: var(--overlay-hover);
-  color: var(--text-primary);
+  border-color: var(--cmp-focus-border);
+  outline: none;
+  box-shadow: none;
 }
 .mobile-nav-search {
   flex: 0 0 auto;
-  height: 48px;
-  border-radius: 999px;
-  background: #0b0b0d;
-  border: 1px solid rgba(255, 255, 255, 0.065);
+  height: var(--mobile-row-h);
+  border-radius: var(--radius-pill);
+  background: var(--cmp-fill);
+  border: 1px solid var(--cmp-hairline);
+  box-shadow: var(--cmp-lit-edge);
   display: flex;
   align-items: center;
   gap: 10px;
   padding: 0 16px;
-  color: var(--text-ghost);
+  color: var(--cmp-ink-faint);
+  transition: border-color var(--dur-fast) var(--ease-out), background-color var(--dur-fast) var(--ease-out);
+}
+.mobile-nav-search:hover { border-color: var(--cmp-hairline-hover); }
+.mobile-nav-search:focus-within {
+  border-color: var(--cmp-hairline-focus);
+  background: var(--cmp-fill-focus);
 }
 .mobile-nav-search input {
   width: 100%;
@@ -1432,21 +1503,16 @@ html {
   border: none;
   outline: none;
   background: transparent;
-  color: var(--text-body);
+  color: var(--cmp-ink);
   font-family: var(--font-sans);
-  font-size: 15px;
+  /* 16px or iOS Safari zooms the page on focus. */
+  font-size: 16px;
   line-height: 1;
 }
 .mobile-nav-search input::placeholder {
-  color: var(--text-ghost);
+  color: var(--cmp-ink-faint);
 }
-.mobile-nav-actions,
-.mobile-nav-section {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  flex: 0 0 auto;
-}
+.mobile-nav-search input:focus-visible { outline: none; box-shadow: none; }
 .mobile-nav-scroll {
   flex: 1 1 auto;
   min-height: 0;
@@ -1457,274 +1523,338 @@ html {
   padding-right: 2px;
   -webkit-overflow-scrolling: touch;
 }
-.mobile-nav-section-label {
-  padding: 14px 10px 6px;
-  color: var(--text-soft);
-  font-family: var(--font-mono);
-  font-size: var(--settings-mono-size);
-  font-weight: var(--weight-medium);
-  letter-spacing: var(--track-folio);
-  text-transform: uppercase;
-}
+
+/* ── The active agent: a row, not a card ──────────────────────────────
+   It used to be a 70px gradient slab with an "ACTIVE AGENT" eyebrow and a
+   "JOURNAL · MEMORY · MIND" subtitle — the loudest object in a drawer whose
+   job is conversations. It is context, so it is a line of text with a dot
+   in front of it and somewhere to go. */
 .mobile-agent-scope {
   display: grid;
-  gap: 6px;
-  padding: 2px 0 4px;
-}
-.mobile-agent-scope-trigger {
-  appearance: none;
-  width: 100%;
-  min-height: 70px;
-  border: 1px solid rgba(255, 255, 255, 0.065);
-  border-radius: 18px;
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.045), rgba(255, 255, 255, 0.018)),
-    #08080a;
-  color: var(--text-body);
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 12px;
-  padding: 11px 12px;
-  text-align: left;
-  cursor: pointer;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
-}
-.mobile-agent-scope-trigger:hover,
-.mobile-agent-scope-trigger:focus-visible {
-  border-color: rgba(255, 255, 255, 0.105);
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.026)),
-    #0a0a0c;
-}
-.mobile-agent-scope-dot,
-.mobile-agent-scope-option-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 999px;
-  background: var(--luca-full);
-  box-shadow: 0 0 14px rgba(96, 165, 250, 0.28);
+  gap: 4px;
   flex: 0 0 auto;
 }
-.mobile-agent-scope-copy {
-  min-width: 0;
-  display: grid;
-  gap: 2px;
-}
-.mobile-agent-scope-kicker,
-.mobile-agent-scope-sub {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-family: var(--font-mono);
-  font-size: 9px;
-  font-weight: var(--weight-medium);
-  letter-spacing: var(--track-folio);
-  text-transform: uppercase;
-  color: var(--text-whisper);
-}
-.mobile-agent-scope-name {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--text-primary);
+.mobile-agent-row {
+  appearance: none;
+  width: 100%;
+  min-height: var(--mobile-agent-row-h);
+  height: var(--mobile-agent-row-h);
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 0 12px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--cmp-ink-muted);
   font-family: var(--font-sans);
-  font-size: 15px;
-  line-height: 1.15;
-  font-weight: 540;
-  letter-spacing: 0;
+  font-size: 13px;
+  font-weight: var(--weight-book);
+  letter-spacing: var(--track-body);
+  text-align: left;
+  cursor: pointer;
+  transition: background-color var(--dur-micro) linear, color var(--dur-micro) linear;
 }
-.mobile-agent-scope-chevron {
-  color: var(--text-whisper);
-  transition: transform 160ms var(--ease-out);
+.mobile-agent-row-dot {
+  width: 4px;
+  height: 4px;
+  flex: 0 0 auto;
+  border-radius: var(--radius-pill);
+  background: var(--luca-full);
 }
+.mobile-agent-row-name {
+  min-width: 0;
+  flex: 0 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mobile-agent-row-chevron {
+  flex: 0 0 auto;
+  color: var(--cmp-ink-faint);
+  transition: transform var(--dur-fast) var(--ease-out);
+}
+.mobile-agent-row:hover { background: var(--cmp-plate-hover); color: var(--cmp-ink); }
+.mobile-agent-row:active { background: var(--cmp-plate-active); transition-duration: 0s; }
+.mobile-agent-row:focus-visible {
+  border-color: var(--cmp-focus-border);
+  outline: none;
+  box-shadow: none;
+}
+.mobile-agent-row[aria-expanded="true"] { color: var(--cmp-ink); }
+
 .mobile-agent-scope-list {
   display: grid;
   gap: 2px;
   padding: 4px;
-  border: 1px solid rgba(255, 255, 255, 0.055);
-  border-radius: 16px;
-  background: #08080a;
+  border: 1px solid var(--cmp-hairline);
+  border-radius: var(--radius-lg);
+  background: var(--surface-3);
 }
 .mobile-agent-scope-option {
   appearance: none;
   width: 100%;
   min-height: 40px;
-  border: none;
-  border-radius: 12px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
   background: transparent;
-  color: var(--text-soft);
+  color: var(--cmp-ink-muted);
   display: flex;
   align-items: center;
   gap: 10px;
   padding: 0 10px;
   font-family: var(--font-sans);
   font-size: 14px;
-  font-weight: 460;
-  letter-spacing: 0;
+  font-weight: var(--weight-book);
+  letter-spacing: var(--track-body);
   text-align: left;
   cursor: pointer;
+  transition: background-color var(--dur-micro) linear, color var(--dur-micro) linear;
 }
-.mobile-agent-scope-option:hover,
-.mobile-agent-scope-option:focus-visible,
+.mobile-agent-scope-option-dot {
+  width: 4px;
+  height: 4px;
+  flex: 0 0 auto;
+  border-radius: var(--radius-pill);
+  background: var(--cmp-ink-ghost);
+}
+.mobile-agent-scope-option:hover { background: var(--cmp-plate-hover); color: var(--cmp-ink); }
+.mobile-agent-scope-option:active { background: var(--cmp-plate-active); transition-duration: 0s; }
+.mobile-agent-scope-option:focus-visible {
+  border-color: var(--cmp-focus-border);
+  outline: none;
+  box-shadow: none;
+}
 .mobile-agent-scope-option[data-active="true"] {
-  background: rgba(255, 255, 255, 0.06);
-  color: var(--text-primary);
+  background: var(--cmp-plate-active);
+  color: var(--cmp-ink);
 }
 .mobile-agent-scope-option[data-active="true"] .mobile-agent-scope-option-dot {
   background: var(--luca-full);
 }
-.mobile-agent-scope-option:not([data-active="true"]) .mobile-agent-scope-option-dot {
-  background: var(--text-whisper);
-  box-shadow: none;
-}
+
+/* ── New chat ─────────────────────────────────────────────────────── */
 .mobile-nav-primary,
-.mobile-nav-row,
-.mobile-thread-row,
 .mobile-nav-signout {
   appearance: none;
   width: 100%;
-  min-height: 46px;
-  border: none;
-  border-radius: 14px;
+  min-height: var(--mobile-row-h);
+  border: 1px solid transparent;
+  border-radius: var(--radius-lg);
   background: transparent;
-  color: var(--text-body);
+  color: var(--cmp-ink);
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: 12px;
   padding: 0 12px;
   font-family: var(--font-sans);
   font-size: 15px;
-  font-weight: 450;
-  letter-spacing: 0;
+  font-weight: var(--weight-medium);
+  letter-spacing: var(--track-body);
   text-align: left;
   cursor: pointer;
-  transition:
-    background var(--dur-fast) var(--ease-out),
-    color var(--dur-fast) var(--ease-out),
-    transform var(--dur-fast) var(--ease-out);
+  flex: 0 0 auto;
+  transition: background-color var(--dur-micro) linear, color var(--dur-micro) linear;
 }
-.mobile-nav-primary {
-  background: #111114;
-  color: var(--text-primary);
-  font-weight: 540;
+.mobile-nav-primary { background: var(--cmp-plate-hover); }
+.mobile-nav-primary:hover { background: var(--cmp-plate-active); }
+.mobile-nav-primary:active,
+.mobile-nav-signout:active { background: var(--cmp-plate-active); transition-duration: 0s; }
+.mobile-nav-primary:focus-visible,
+.mobile-nav-signout:focus-visible {
+  border-color: var(--cmp-focus-border);
+  outline: none;
+  box-shadow: none;
 }
-.mobile-nav-row:hover,
-.mobile-thread-row:hover,
-.mobile-nav-primary:hover,
-.mobile-nav-row:focus-visible,
-.mobile-thread-row:focus-visible,
-.mobile-nav-primary:focus-visible {
-  background: var(--overlay-hover);
-  color: var(--text-primary);
+.mobile-nav-primary span { flex: 1 1 auto; min-width: 0; }
+
+/* ── Conversations ────────────────────────────────────────────────── */
+.mobile-nav-threads {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
 }
-.mobile-nav-row:active,
-.mobile-thread-row:active,
-.mobile-nav-primary:active {
-  transform: scale(0.99);
-}
-.mobile-nav-row[data-active="true"],
-.mobile-thread-row[data-active="true"] {
-  background: rgba(255, 255, 255, 0.07);
-  color: var(--text-primary);
-}
-.mobile-nav-quick {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 6px;
-}
-.mobile-nav-quick-btn {
-  appearance: none;
-  min-width: 0;
-  min-height: 42px;
-  border: 1px solid var(--border-faint);
-  border-radius: 14px;
+.mobile-nav-group { display: flex; flex-direction: column; }
+.mobile-nav-group-label,
+.mobile-nav-group-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  padding: 14px 12px 5px;
+  border: none;
   background: transparent;
-  color: var(--text-tertiary);
-  display: inline-flex;
+  color: var(--cmp-ink-faint);
+  font-family: var(--font-sans);
+  font-size: 11px;
+  font-weight: var(--weight-medium);
+  letter-spacing: var(--track-meta);
+  text-transform: uppercase;
+  text-align: left;
+}
+.mobile-nav-group-head { cursor: pointer; }
+.mobile-nav-group-head span {
+  min-width: 0;
+  flex: 0 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mobile-nav-group-head:hover { color: var(--cmp-ink-muted); }
+.mobile-nav-group-head:active { color: var(--cmp-ink); }
+.mobile-nav-group-head:focus-visible {
+  outline: none;
+  box-shadow: none;
+  color: var(--cmp-ink);
+}
+.mobile-nav-group-chevron {
+  flex: 0 0 auto;
+  transition: transform var(--dur-fast) var(--ease-out);
+}
+
+.mobile-thread-row {
+  appearance: none;
+  width: 100%;
+  min-height: var(--mobile-row-h);
+  display: flex;
+  align-items: center;
+  padding: 0 12px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--cmp-ink-muted);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  font-weight: var(--weight-book);
+  letter-spacing: var(--track-body);
+  text-align: left;
+  cursor: pointer;
+  transition: background-color var(--dur-micro) linear, color var(--dur-micro) linear;
+}
+.mobile-thread-title {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mobile-thread-row:hover { background: var(--cmp-plate-hover); color: var(--cmp-ink); }
+.mobile-thread-row:active { background: var(--cmp-plate-active); transition-duration: 0s; }
+.mobile-thread-row:focus-visible {
+  border-color: var(--cmp-focus-border);
+  outline: none;
+  box-shadow: none;
+}
+.mobile-thread-row[data-active="true"] {
+  background: var(--cmp-plate-active);
+  color: var(--cmp-ink);
+}
+
+.mobile-nav-more {
+  appearance: none;
+  width: 100%;
+  min-height: var(--mobile-row-h);
+  margin-top: 4px;
+  padding: 0 12px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--cmp-ink-faint);
+  display: flex;
+  align-items: center;
+  font-family: var(--font-sans);
+  font-size: 12.5px;
+  font-weight: var(--weight-medium);
+  letter-spacing: var(--track-ui);
+  text-align: left;
+  cursor: pointer;
+  transition: background-color var(--dur-micro) linear, color var(--dur-micro) linear;
+}
+.mobile-nav-more:hover { background: var(--cmp-plate-hover); color: var(--cmp-ink-muted); }
+.mobile-nav-more:active { background: var(--cmp-plate-active); transition-duration: 0s; }
+.mobile-nav-more:focus-visible {
+  border-color: var(--cmp-focus-border);
+  outline: none;
+  box-shadow: none;
+}
+
+/* The one divider in the drawer: conversations end, sections begin. */
+.mobile-nav-rule {
+  flex: 0 0 auto;
+  height: 1px;
+  margin: 12px 12px 4px;
+  background: var(--cmp-hairline);
+}
+
+/* ── Sections: glyph over label, three across ─────────────────────── */
+.mobile-nav-tiles {
+  flex: 0 0 auto;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 4px;
+  padding-bottom: 4px;
+}
+.mobile-nav-tile {
+  appearance: none;
+  position: relative;
+  min-width: 0;
+  height: var(--mobile-tile-h);
+  display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 8px;
-  padding: 0 10px;
+  gap: 7px;
+  padding: 0 4px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-lg);
+  background: transparent;
+  color: var(--cmp-ink-muted);
   font-family: var(--font-sans);
-  font-size: 13px;
-  font-weight: 460;
+  font-size: 11px;
+  font-weight: var(--weight-medium);
+  letter-spacing: var(--track-ui);
   cursor: pointer;
-  transition:
-    background var(--dur-fast) var(--ease-out),
-    color var(--dur-fast) var(--ease-out),
-    border-color var(--dur-fast) var(--ease-out);
+  transition: background-color var(--dur-micro) linear, color var(--dur-micro) linear;
 }
-.mobile-nav-quick-btn:hover,
-.mobile-nav-quick-btn:focus-visible,
-.mobile-nav-quick-btn[data-active="true"] {
-  background: var(--overlay-hover);
-  border-color: var(--border-subtle);
-  color: var(--text-primary);
-}
-.mobile-nav-quick-btn span {
-  min-width: 0;
+.mobile-nav-tile span {
+  max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.mobile-nav-row span,
-.mobile-nav-primary span {
-  flex: 1 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.mobile-nav-tile:hover { background: var(--cmp-plate-hover); color: var(--cmp-ink); }
+.mobile-nav-tile:active { background: var(--cmp-plate-active); transition-duration: 0s; }
+.mobile-nav-tile:focus-visible {
+  border-color: var(--cmp-focus-border);
+  outline: none;
+  box-shadow: none;
 }
-.mobile-nav-chevron {
-  margin-left: auto;
-  color: var(--text-whisper);
+.mobile-nav-tile[data-active="true"] {
+  background: var(--cmp-plate-active);
+  color: var(--cmp-ink);
 }
 .mobile-nav-count {
-  flex: 0 0 auto !important;
-  min-width: 20px !important;
-  height: 20px;
-  border-radius: 999px;
-  padding: 0 6px;
+  position: absolute;
+  top: 9px;
+  right: 12px;
+  min-width: 17px;
+  height: 17px;
+  border-radius: var(--radius-pill);
+  padding: 0 5px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   background: rgba(96, 165, 250, 0.14);
   color: var(--luca-full);
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: 11px;
+  letter-spacing: 0;
 }
-.mobile-nav-threads {
-  flex: 0 0 auto;
-}
-.mobile-thread-row {
-  min-height: 42px;
-  padding: 0 10px;
-  gap: 10px;
-  color: var(--text-secondary);
-  font-size: 14px;
-}
-.mobile-thread-dot {
-  width: 5px;
-  height: 5px;
-  border-radius: 999px;
-  background: var(--text-whisper);
-  flex: 0 0 auto;
-}
-.mobile-thread-row[data-active="true"] .mobile-thread-dot {
-  background: var(--luca-full);
-}
-.mobile-thread-title {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
+
 .mobile-nav-empty {
-  padding: 12px 10px;
-  color: var(--text-ghost);
+  padding: 16px 12px;
+  color: var(--cmp-ink-faint);
+  font-family: var(--font-sans);
   font-size: 13px;
 }
 .mobile-nav-footer {
@@ -1923,9 +2053,11 @@ html {
 }
 
 /* Phones: iOS Safari zooms the page when a focused field is set under 16px.
-   The pill grows a few px; the touch-size rules below already allow for it. */
+   The pill absorbs it — see the phone block further down, which trades the
+   composer's padding for the taller line so the one-line pill still reads
+   thin at 48px. */
 @media (max-width: 767px) {
-  .cmp-input { font-size: 16px; }
+  .cmp-input { font-size: 16px; padding-block: 4px; }
 }
 .cmp-input::placeholder { color: var(--cmp-ink-faint); }
 .cmp-input:focus-visible { outline: none; box-shadow: none; }
@@ -2132,24 +2264,26 @@ html {
 .effort-item:active { background: var(--cmp-plate-active); transition-duration: 0s; }
 .effort-item:focus-visible { outline: none; box-shadow: none; }
 
-/* ── The measure below 720px: edge to edge ─────────────────────────── */
-@media (max-width: 719px) {
-  .cmp { max-width: 100%; }
-}
-
-/* ── Mobile: collapsed at rest, fat touch targets ──────────────────── */
-@media (hover: none) and (pointer: coarse) {
-  .cmp-send { width: 44px; height: 44px; }
-  .cmp-bar button,
-  .cmp-ctl { height: 44px; min-height: 44px; }
-  .cmp-bar .mic-btn,
-  .cmp-bar .attach-btn { width: 44px; }
-  .cmp-lead { height: 44px; }
-  .cmp-lead .attach-btn { width: 44px; height: 44px; }
-  .cmp-input { min-height: 44px; padding-block: 10px; }
-}
-
+/* ── Phones: the same pill, one register smaller ───────────────────────
+   The composer used to grow on a phone rather than shrink: 44px *visible*
+   circles inside a 58-60px pill, because the touch minimum had been drawn
+   instead of hit-boxed. Here the drawing comes down to 36px (a 48px pill,
+   the desktop 48 exactly) and the 44px target is restored underneath as a
+   transparent pseudo-element. The bar's gap widens to 12px so neighbouring
+   hit-boxes meet without overlapping.
+   --------------------------------------------------------------------- */
 @media (max-width: 767px) {
+  .cmp {
+    max-width: 100%;
+    --cmp-send-size: 36px;
+    --cmp-ctl-size: 32px;
+    --cmp-bar-gap: 12px;
+  }
+  /* 36 (send) + 5 + 5 (padding) + 1 + 1 (border) = 48. */
+  .cmp-pill { padding: 5px 5px 5px 14px; }
+  .cmp-lead { margin-left: -6px; }
+  .cmp-lead .attach-btn { width: var(--cmp-send-size); height: var(--cmp-send-size); }
+
   .cmp-bar {
     overflow: hidden;
     max-height: 52px;
@@ -2163,6 +2297,39 @@ html {
     opacity: 0;
     pointer-events: none;
   }
+}
+
+/* ── Touch: hit-boxes, not bigger drawings ─────────────────────────── */
+@media (hover: none) and (pointer: coarse) {
+  .cmp-send,
+  .cmp-lead .attach-btn,
+  .cmp-bar button,
+  .cmp-ctl { position: relative; }
+  /* Sized, not inset: an absolutely positioned box resolves its offsets
+     against the PADDING box, so `inset: -4px` on a 1px-bordered 36px control
+     is 42px, not 44. The target is declared at its real size and centred. */
+  .cmp-send::after,
+  .cmp-lead .attach-btn::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: var(--touch-target);
+    height: var(--touch-target);
+    transform: translate(-50%, -50%);
+  }
+  .cmp-bar button::after,
+  .cmp-ctl::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 0;
+    right: 0;
+    height: var(--touch-target);
+    transform: translateY(-50%);
+  }
+  /* The popover's own rows are a list, not a toolbar — they keep their size. */
+  .effort-pop .effort-item::after { content: none; }
 }
 
 /* ── The Observer well ─────────────────────────────────────────────────
@@ -2373,21 +2540,12 @@ html {
   color: var(--cmp-ink);
 }
 
-/* ── Mobile: full width, viewport-relative depth ── */
-@media (max-width: 719px) {
-  .cmp-well { --cmp-well-max: 44vh; }
-}
-/* Below 768px the app floor drops to pure black, and nothing is darker than
-   black — a cut made by darkening simply disappears. So on that floor the
-   recess is drawn the way a recess is drawn on black: the plane sits a hair
-   ABOVE the floor and the top lip eats it back down to nothing, which is a
-   scoop lit from above rather than a card. Same reading, inverted mechanics,
-   because the ground ran out of room. Still no border and no gradient. */
+/* ── Mobile: full width, viewport-relative depth ──────────────────────
+   The phone inversion is gone with the pure-black floor it existed for. On
+   #0e0e11 there is room below the ground again, so the well cuts DOWN here
+   exactly as it does on the desktop — one mechanic, one reading. */
 @media (max-width: 767px) {
-  .cmp-well {
-    --cmp-well-bg: rgba(255, 255, 255, 0.022);
-    --cmp-well-lip: inset 0 7px 12px -7px rgba(0, 0, 0, 0.9);
-  }
+  .cmp-well { --cmp-well-max: 44vh; }
 }
 
 /* Textarea */
@@ -2436,7 +2594,6 @@ html {
 
 .input-shell .input-textarea:focus-visible,
 .input-shell .agent-pill:focus-visible,
-.input-shell .ensemble-pill:focus-visible,
 .input-shell .send-btn:focus-visible {
   box-shadow: none;
 }
@@ -2741,43 +2898,11 @@ html {
 }
 .pill-sep { width: 2px; height: 2px; border-radius: 50%; background: var(--text-whisper); opacity: 0.6; }
 
-/* ── Ensemble Pill (per-message skill toggle) ── */
-.ensemble-pill {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  padding: 3px 9px 3px 7px;
-  border-radius: var(--radius-pill);
-  background: transparent;
-  border: none;
-  font-family: var(--font-sans);
-  font-size: 10.5px;
-  font-weight: 420;
-  letter-spacing: 0.02em;
-  color: var(--text-ghost);
-  cursor: pointer;
-  transition: all var(--dur-fast) var(--ease-out);
-  white-space: nowrap;
-  margin-left: 2px;
-}
-.ensemble-pill:hover {
-  color: var(--text-tertiary);
-  background: var(--overlay-hover);
-}
-.ensemble-pill.armed {
-  color: var(--text-body);
-  background: var(--overlay-hover);
-}
+
 .agent-mode-pill.armed {
   color: var(--accent-soft);
   background: color-mix(in srgb, var(--accent-soft) 11%, transparent);
 }
-.ensemble-pill.locked {
-  color: var(--text-primary);
-  background: var(--overlay-active);
-}
-.ensemble-pill svg { width: 11px; height: 11px; opacity: 0.75; }
-.ensemble-pill.armed svg, .ensemble-pill.locked svg { opacity: 1; }
 
 /* ── Modes Dropdown (consolidated agent + ensemble selector) ──────────────
    One trigger pill in the toolbar, opens a popover with two toggle rows.
@@ -3454,19 +3579,19 @@ a.luca-download-trigger {
   }
 
   .input-zone {
-    padding: 8px 10px max(env(safe-area-inset-bottom), 10px);
-    background: #000;
+    padding: 8px 12px max(env(safe-area-inset-bottom), 10px);
+    background: var(--canvas);
   }
 
   .chat-empty-composer {
-    padding: 8px 10px max(env(safe-area-inset-bottom), 10px);
-    background: #000;
+    padding: 8px 12px max(env(safe-area-inset-bottom), 10px);
+    background: var(--canvas);
   }
 
   .input-zone::before {
     top: -28px;
     height: 28px;
-    background: linear-gradient(to top, #000, transparent);
+    background: linear-gradient(to top, var(--canvas), transparent);
   }
 
   /* Composer surface — FRONTIER FLAT. The way ChatGPT/Claude/Grok/Gemini do
@@ -3570,21 +3695,6 @@ a.luca-download-trigger {
 
   .att-chip-name {
     max-width: 132px;
-  }
-
-  .ensemble-pill {
-    width: 34px;
-    min-height: 34px;
-    gap: 0;
-    margin-left: 0;
-    overflow: hidden;
-    padding: 0 9px;
-    font-size: 0;
-  }
-
-  .ensemble-pill svg {
-    width: 13px;
-    height: 13px;
   }
 
   /* Touch targets: WCAG 2.5.5 / Apple HIG 44px minimum. Icons stay small
@@ -4153,14 +4263,33 @@ a.luca-download-trigger {
     padding-top: 0;
   }
 
+  /* 11px is the floor on a phone. 9px mono at arm's length in daylight is a
+     smudge, and these two labels are the only thing that says who spoke. */
   .msg-time,
   .msg-author {
-    font-size: 9px;
+    font-size: 11px;
   }
 
   .msg-body {
     font-size: 15px;
     line-height: 1.62;
+  }
+
+  /* The trace button is hover-gated nowhere on a phone — there is no hover.
+     It reads at the composer's faint ink, sized to be tapped. */
+  .msg-trace-button {
+    height: 32px;
+    padding: 0 10px;
+    font-size: 11px;
+    color: var(--cmp-ink-faint);
+  }
+
+  .thinking-body-text {
+    font-size: 12px;
+  }
+
+  .thinking-timer {
+    font-size: 11px;
   }
 }
 
@@ -4189,7 +4318,7 @@ a.luca-download-trigger {
 /* Larger hit area on touch without visual change — meets 44px min touch target. */
 @media (hover: none) and (pointer: coarse) {
   .sidebar-row {
-    min-height: 44px;
+    min-height: var(--touch-target);
   }
 }
 
@@ -5046,7 +5175,8 @@ a.luca-download-trigger {
 
 @media (max-width: 767px) {
   .drawer {
-    top: var(--inset-gap);
+    /* Clear the status bar / Dynamic Island the same way the app bar does. */
+    top: max(env(safe-area-inset-top, 0px), var(--inset-gap));
     right: var(--inset-gap);
     bottom: var(--inset-gap);
     width: calc(100dvw - (var(--inset-gap) * 2));
@@ -12567,9 +12697,16 @@ a.luca-download-trigger {
   .mobile-nav-drawer,
   .mobile-nav-backdrop,
   .mobile-bar-button,
-  .mobile-nav-row,
+  .mobile-agent-row,
+  .mobile-agent-scope-option,
+  .mobile-nav-primary,
+  .mobile-nav-signout,
   .mobile-thread-row,
-  .mobile-nav-quick-btn,
+  .mobile-nav-more,
+  .mobile-nav-tile,
+  .mobile-nav-group-head,
+  .mobile-nav-group-chevron,
+  .mobile-agent-row-chevron,
   .m-agent-card[data-speaking="true"]::before { animation: none !important; transition: none !important; }
 }
 
@@ -14371,7 +14508,7 @@ body[data-canvas-resizing]::after {
   content: ''; position: fixed; inset: 0; z-index: 2147483646; cursor: col-resize;
 }
 
-@media (max-width: 768px) {
+@media (max-width: 767px) {
   .canvas-pane { width: 100%; z-index: 220; }
   .chat-view[data-canvas-open="true"] { padding-right: 0; }
   .canvas-resize-handle { display: none; }

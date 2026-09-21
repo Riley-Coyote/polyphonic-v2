@@ -5,11 +5,11 @@ import {
   Archive,
   Bot,
   Brain,
+  ChevronDown,
   ChevronRight,
   CircleUserRound,
   FolderKanban,
-  MessageCircle,
-  MessagesSquare,
+  Folder,
   NotebookPen,
   Plus,
   Search,
@@ -25,13 +25,15 @@ import { useInterfaceModeStore } from '@/stores/interfaceModeStore';
 import { useMobileShellStore } from '@/stores/mobileShellStore';
 import { useNotificationStore, selectPendingInitiationsCount } from '@/stores/notificationStore';
 import { useThreadStore, type Thread } from '@/stores/threadStore';
+import { useProjectStore, sortProjects, threadsForProject } from '@/stores/projectStore';
+import { groupThreadsByDate, type ThreadGroup } from '@/lib/threadGrouping';
 import { shouldShowStudioNavigation } from '@/lib/interfaceMode';
 
-// Primary surfaces — mirrors the desktop nav rail.
-const STUDIO_ROUTES = [
-  { label: 'Chat', path: '/chat', icon: MessageCircle },
-  // { label: 'Groups', path: '/groups', icon: MessagesSquare }, // hidden — WIP
-
+/* The drawer is a conversations list that happens to also reach the app's
+   sections — not an app menu with the conversations buried under it. Sections
+   are the tile grid at the bottom; "Chat" is not among them, because the
+   thing Chat would open is the list you are already standing in. */
+const STUDIO_SECTIONS = [
   { label: 'Memory', path: '/memory', icon: Archive },
   { label: 'Mind', path: '/mind', icon: Brain },
   { label: 'Journal', path: '/journal', icon: NotebookPen },
@@ -39,41 +41,21 @@ const STUDIO_ROUTES = [
   { label: 'Profile', path: '/profile', icon: CircleUserRound },
 ];
 
-// Mobile nav for companion + guided mirrors the desktop Rail's
-// getRailSurfaces() output. Notebook
-// points at /notebook directly so the URL, drawer label, and page header all
-// say "Notebook" (instead of /journal redirect chain showing "Journal").
-const SIMPLE_ROUTES = [
-  { label: 'Chat', path: '/chat', icon: MessageCircle },
-  // { label: 'Groups', path: '/groups', icon: MessagesSquare }, // hidden — WIP
-
+// Companion + guided mirror the desktop Rail's reduced surface set. Notebook
+// points at /notebook directly so the URL, tile label and page header agree.
+const SIMPLE_SECTIONS = [
   { label: 'Notebook', path: '/notebook', icon: NotebookPen },
   { label: 'Memory', path: '/memory', icon: Archive },
   { label: 'Agents', path: '/settings/agents', icon: Bot },
 ];
 
-// All settings sub-pages (mirrors the desktop SidebarSettings nav), surfaced on
-// mobile as a collapsible group so every settings page is reachable. Studio-
-// only entries are filtered out in companion + guided modes (matches the
-// desktop SidebarSettings Phase-5 gating).
-const SETTINGS_ROUTES: Array<{ label: string; path: string; studioOnly?: boolean }> = [
-  { label: 'Agents', path: '/settings/agents' },
-  { label: 'General', path: '/settings/general' },
-  { label: 'Models', path: '/settings/models' },
-  { label: 'Appearance', path: '/settings/appearance' },
-  { label: 'Self-model', path: '/settings/skills', studioOnly: true },
-  { label: 'Routines', path: '/settings/routines', studioOnly: true },
-  { label: 'Voice & security', path: '/settings/voice', studioOnly: true },
-  { label: 'Local runtime', path: '/settings/local-runtime', studioOnly: true },
-  { label: 'Import & export', path: '/settings/portability' },
-  { label: 'Account & preferences', path: '/settings/account' },
-  { label: 'Cron health', path: '/settings/cron-health', studioOnly: true },
-  { label: 'Guide & help', path: '/settings/help' },
-];
+// One page of conversations. A phone list this long is already a scroll; the
+// rest arrives on request rather than on open.
+const THREAD_PAGE = 60;
 
 function isActiveRoute(pathname: string, path: string): boolean {
-  if (path === '/chat') return pathname.startsWith('/chat');
   if (path === '/settings/agents') return pathname.startsWith('/settings/agents');
+  if (path === '/settings') return pathname.startsWith('/settings');
   return pathname === path || pathname.startsWith(`${path}/`);
 }
 
@@ -96,6 +78,8 @@ export default function MobileNavDrawer() {
   const currentThreadId = useThreadStore((s) => s.currentThreadId);
   const loadThreads = useThreadStore((s) => s.loadThreads);
   const createThread = useThreadStore((s) => s.createThread);
+  const projects = useProjectStore((s) => s.projects);
+  const loadProjects = useProjectStore((s) => s.loadProjects);
   const openContextDrawer = useDrawerStore((s) => s.open);
   const closeContextDrawer = useDrawerStore((s) => s.close);
   const pendingCount = useNotificationStore(selectPendingInitiationsCount);
@@ -104,39 +88,27 @@ export default function MobileNavDrawer() {
   const setActiveAgent = useAgentScopeStore((s) => s.setActiveAgent);
   const interfaceMode = useInterfaceModeStore((s) => s.mode);
   const [query, setQuery] = useState('');
-  const [settingsOpen, setSettingsOpen] = useState(false);
   const [agentScopeOpen, setAgentScopeOpen] = useState(false);
-  const settingsNavRef = useRef<HTMLDivElement | null>(null);
+  const [collapsedProjects, setCollapsedProjects] = useState<Record<string, boolean>>({});
+  const [visibleCount, setVisibleCount] = useState(THREAD_PAGE);
   const activeAgentName = useMemo(
     () => availableAgents.find((agent) => agent.id === activeAgentId)?.name ?? 'Luca',
     [activeAgentId, availableAgents],
   );
-  const primaryRoutes = shouldShowStudioNavigation(interfaceMode) ? STUDIO_ROUTES : SIMPLE_ROUTES;
-
-  // Auto-expand the Settings group when the drawer opens on a settings route,
-  // so the current section is in view.
-  useEffect(() => {
-    if (open && location.pathname.startsWith('/settings')) setSettingsOpen(true);
-  }, [open, location.pathname]);
-
-  // The Settings group sits at the bottom of the nav list, so scroll it into
-  // view when it expands — otherwise its items render below the fold.
-  useEffect(() => {
-    if (!settingsOpen) return;
-    const t = setTimeout(
-      () => settingsNavRef.current?.scrollIntoView({ block: 'end', behavior: 'smooth' }),
-      60,
-    );
-    return () => clearTimeout(t);
-  }, [settingsOpen]);
+  const sections = shouldShowStudioNavigation(interfaceMode) ? STUDIO_SECTIONS : SIMPLE_SECTIONS;
 
   useEffect(() => {
-    if (open) void loadThreads();
-  }, [loadThreads, open]);
+    if (!open) return;
+    void loadThreads();
+    void loadProjects();
+  }, [loadProjects, loadThreads, open]);
 
   useEffect(() => {
     close();
   }, [close, location.pathname]);
+
+  // A new search is a new list — page back to the first 60 rows.
+  useEffect(() => { setVisibleCount(THREAD_PAGE); }, [query]);
 
   useEffect(() => {
     if (!open) return undefined;
@@ -155,10 +127,31 @@ export default function MobileNavDrawer() {
     onEscape: handleEscape,
   });
 
-  const recentThreads = useMemo(
-    () => filteredThreads(threads, query).slice(0, 32),
-    [query, threads],
+  const visible = useMemo(() => filteredThreads(threads, query), [query, threads]);
+
+  // Projects own their threads, exactly as the desktop sidebar has it: a
+  // thread inside a project appears under its project and nowhere else.
+  const projectGroups = useMemo(() => {
+    const eligible = projects.filter((p) => !p.archived);
+    return sortProjects(eligible)
+      .map((project) => ({ project, threads: threadsForProject(visible, project.id) }))
+      .filter((entry) => entry.threads.length > 0);
+  }, [projects, visible]);
+
+  const dateGroups: ThreadGroup[] = useMemo(
+    () => groupThreadsByDate(visible.filter((t) => !t.project_id)),
+    [visible],
   );
+
+  // The page budget is spent across the whole list, project rows first, so
+  // "Show older" always reveals the next 60 rows wherever they fall.
+  const totalRows =
+    projectGroups.reduce((n, entry) => n + entry.threads.length, 0) +
+    dateGroups.reduce((n, group) => n + group.threads.length, 0);
+  const hasMore = totalRows > visibleCount;
+
+  const take = (rows: Thread[], spent: number): Thread[] =>
+    rows.slice(0, Math.max(0, visibleCount - spent));
 
   const go = (path: string) => {
     navigate(path);
@@ -191,6 +184,21 @@ export default function MobileNavDrawer() {
     navigate('/', { replace: true });
   };
 
+  const renderThreadRow = (thread: Thread) => (
+    <button
+      key={thread.id}
+      type="button"
+      className="mobile-thread-row"
+      data-active={thread.id === currentThreadId ? 'true' : undefined}
+      aria-current={thread.id === currentThreadId ? 'page' : undefined}
+      onClick={() => go(`/chat/${thread.id}`)}
+    >
+      <span className="mobile-thread-title">{thread.title || 'New conversation'}</span>
+    </button>
+  );
+
+  let spent = 0;
+
   return (
     <>
       <div
@@ -215,12 +223,12 @@ export default function MobileNavDrawer() {
             <span>Polyphonic</span>
           </div>
           <button type="button" className="mobile-nav-icon-btn" onClick={close} aria-label="Close navigation menu">
-            <X size={21} strokeWidth={1.7} />
+            <X size={20} strokeWidth={1.7} />
           </button>
         </div>
 
         <label className="mobile-nav-search">
-          <Search size={18} strokeWidth={1.8} aria-hidden="true" />
+          <Search size={17} strokeWidth={1.8} aria-hidden="true" />
           <input
             ref={searchRef}
             value={query}
@@ -230,142 +238,147 @@ export default function MobileNavDrawer() {
           />
         </label>
 
-        <div className="mobile-nav-scroll">
-          <section className="mobile-agent-scope" aria-label="Agent scope">
-            <button
-              type="button"
-              className="mobile-agent-scope-trigger"
-              onClick={() => setAgentScopeOpen((value) => !value)}
-              aria-expanded={agentScopeOpen}
-            >
-              <span className="mobile-agent-scope-dot" aria-hidden="true" />
-              <span className="mobile-agent-scope-copy">
-                <span className="mobile-agent-scope-kicker">Active agent</span>
-                <span className="mobile-agent-scope-name">{activeAgentName}</span>
-                <span className="mobile-agent-scope-sub">Journal · Memory · Mind</span>
-              </span>
-              <ChevronRight
-                className="mobile-agent-scope-chevron"
-                size={16}
-                strokeWidth={1.7}
-                style={{
-                  transform: agentScopeOpen ? 'rotate(90deg)' : 'none',
-                }}
-              />
-            </button>
+        {/* The active agent is context, not a feature. One dot, one name, one
+            chevron — no card, no eyebrow, no list of what it can reach. */}
+        <section className="mobile-agent-scope" aria-label="Agent scope">
+          <button
+            type="button"
+            className="mobile-agent-row"
+            onClick={() => setAgentScopeOpen((value) => !value)}
+            aria-expanded={agentScopeOpen}
+          >
+            <span className="mobile-agent-row-dot" aria-hidden="true" />
+            <span className="mobile-agent-row-name">{activeAgentName}</span>
+            <ChevronDown
+              className="mobile-agent-row-chevron"
+              size={12}
+              strokeWidth={1.8}
+              aria-hidden="true"
+              style={{ transform: agentScopeOpen ? 'rotate(180deg)' : 'none' }}
+            />
+          </button>
 
-            {agentScopeOpen && (
-              <div className="mobile-agent-scope-list" role="listbox" aria-label="Choose active agent">
-                {availableAgents.map((agent) => {
-                  const active = agent.id === activeAgentId;
-                  return (
-                    <button
-                      key={agent.id}
-                      type="button"
-                      className="mobile-agent-scope-option"
-                      data-active={active ? 'true' : undefined}
-                      onClick={() => handleSelectAgentScope(agent.id)}
-                      role="option"
-                      aria-selected={active}
-                    >
-                      <span className="mobile-agent-scope-option-dot" aria-hidden="true" />
-                      <span>{agent.name}</span>
-                    </button>
-                  );
-                })}
+          {agentScopeOpen && (
+            <div className="mobile-agent-scope-list" role="listbox" aria-label="Choose active agent">
+              {availableAgents.map((agent) => {
+                const active = agent.id === activeAgentId;
+                return (
+                  <button
+                    key={agent.id}
+                    type="button"
+                    className="mobile-agent-scope-option"
+                    data-active={active ? 'true' : undefined}
+                    onClick={() => handleSelectAgentScope(agent.id)}
+                    role="option"
+                    aria-selected={active}
+                  >
+                    <span className="mobile-agent-scope-option-dot" aria-hidden="true" />
+                    <span>{agent.name}</span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </section>
+
+        <button type="button" className="mobile-nav-primary" onClick={handleNewChat}>
+          <Plus size={18} strokeWidth={1.8} />
+          <span>New chat</span>
+        </button>
+
+        <div className="mobile-nav-scroll">
+          <div className="mobile-nav-threads">
+            {totalRows === 0 && (
+              <div className="mobile-nav-empty">
+                {query.trim() ? 'No matching conversations.' : 'No conversations yet.'}
               </div>
             )}
-          </section>
 
-          <div className="mobile-nav-actions">
-            <button type="button" className="mobile-nav-primary" onClick={handleNewChat}>
-              <Plus size={19} strokeWidth={1.8} />
-              <span>New chat</span>
-            </button>
-            <button type="button" className="mobile-nav-row" onClick={handleOpenActivity}>
-              <Activity size={18} strokeWidth={1.8} />
+            {projectGroups.map(({ project, threads: projectThreads }) => {
+              const rows = take(projectThreads, spent);
+              spent += rows.length;
+              if (rows.length === 0) return null;
+              const isCollapsed = !!collapsedProjects[project.id];
+              return (
+                <div key={project.id} className="mobile-nav-group">
+                  <button
+                    type="button"
+                    className="mobile-nav-group-head"
+                    aria-expanded={!isCollapsed}
+                    onClick={() =>
+                      setCollapsedProjects((prev) => ({ ...prev, [project.id]: !prev[project.id] }))
+                    }
+                  >
+                    <Folder size={12} strokeWidth={1.8} aria-hidden="true" />
+                    <span>{project.name}</span>
+                    <ChevronRight
+                      className="mobile-nav-group-chevron"
+                      size={12}
+                      strokeWidth={1.8}
+                      aria-hidden="true"
+                      style={{ transform: isCollapsed ? 'none' : 'rotate(90deg)' }}
+                    />
+                  </button>
+                  {!isCollapsed && rows.map(renderThreadRow)}
+                </div>
+              );
+            })}
+
+            {dateGroups.map((group) => {
+              const rows = take(group.threads, spent);
+              spent += rows.length;
+              if (rows.length === 0) return null;
+              return (
+                <div key={group.key} className="mobile-nav-group">
+                  <div className="mobile-nav-group-label">{group.label}</div>
+                  {rows.map(renderThreadRow)}
+                </div>
+              );
+            })}
+
+            {hasMore && (
+              <button
+                type="button"
+                className="mobile-nav-more"
+                onClick={() => setVisibleCount((n) => n + THREAD_PAGE)}
+              >
+                Show older
+              </button>
+            )}
+          </div>
+
+          <div className="mobile-nav-rule" aria-hidden="true" />
+
+          <nav className="mobile-nav-tiles" aria-label="Sections">
+            <button type="button" className="mobile-nav-tile" onClick={handleOpenActivity}>
+              <Activity size={18} strokeWidth={1.7} aria-hidden="true" />
               <span>Activity</span>
               {pendingCount > 0 && <span className="mobile-nav-count">{pendingCount}</span>}
             </button>
-          </div>
-
-          <nav className="mobile-nav-section" aria-label="Navigate">
-            {primaryRoutes.map(({ label, path, icon: Icon }) => (
+            {sections.map(({ label, path, icon: Icon }) => (
               <button
                 key={path}
                 type="button"
-                className="mobile-nav-row"
+                className="mobile-nav-tile"
                 data-active={isActiveRoute(location.pathname, path) ? 'true' : undefined}
                 onClick={() => go(path)}
                 aria-current={isActiveRoute(location.pathname, path) ? 'page' : undefined}
               >
-                <Icon size={18} strokeWidth={1.75} />
+                <Icon size={18} strokeWidth={1.7} aria-hidden="true" />
                 <span>{label}</span>
-                <ChevronRight className="mobile-nav-chevron" size={16} strokeWidth={1.7} />
               </button>
             ))}
-
-            <div ref={settingsNavRef}>
-              <button
-                type="button"
-                className="mobile-nav-row"
-                data-active={location.pathname.startsWith('/settings') ? 'true' : undefined}
-                onClick={() => setSettingsOpen((v) => !v)}
-                aria-expanded={settingsOpen}
-              >
-                <Settings size={18} strokeWidth={1.75} />
-                <span>Settings</span>
-                <ChevronRight
-                  className="mobile-nav-chevron"
-                  size={16}
-                  strokeWidth={1.7}
-                  style={{
-                    transform: settingsOpen ? 'rotate(90deg)' : 'none',
-                    transition: 'transform 160ms var(--ease-out)',
-                  }}
-                />
-              </button>
-              {settingsOpen &&
-                SETTINGS_ROUTES
-                  .filter((entry) => shouldShowStudioNavigation(interfaceMode) || !entry.studioOnly)
-                  .map(({ label, path }) => {
-                    const active =
-                      location.pathname === path || location.pathname.startsWith(`${path}/`);
-                    return (
-                      <button
-                        key={path}
-                        type="button"
-                        className="mobile-nav-row"
-                        style={{ paddingLeft: 46 }}
-                        data-active={active ? 'true' : undefined}
-                        onClick={() => go(path)}
-                        aria-current={active ? 'page' : undefined}
-                      >
-                        <span>{label}</span>
-                      </button>
-                    );
-                  })}
-            </div>
+            <button
+              type="button"
+              className="mobile-nav-tile"
+              data-active={isActiveRoute(location.pathname, '/settings') ? 'true' : undefined}
+              onClick={() => go('/settings')}
+              aria-current={isActiveRoute(location.pathname, '/settings') ? 'page' : undefined}
+            >
+              <Settings size={18} strokeWidth={1.7} aria-hidden="true" />
+              <span>Settings</span>
+            </button>
           </nav>
-
-          <div className="mobile-nav-section mobile-nav-threads">
-            <div className="mobile-nav-section-label">Recent threads</div>
-            {recentThreads.length === 0 && (
-              <div className="mobile-nav-empty">No matching threads.</div>
-            )}
-            {recentThreads.map((thread) => (
-              <button
-                key={thread.id}
-                type="button"
-                className="mobile-thread-row"
-                data-active={thread.id === currentThreadId ? 'true' : undefined}
-                onClick={() => go(`/chat/${thread.id}`)}
-              >
-                <span className="mobile-thread-dot" aria-hidden="true" />
-                <span className="mobile-thread-title">{thread.title || 'New conversation'}</span>
-              </button>
-            ))}
-          </div>
         </div>
 
         <div className="mobile-nav-footer">
