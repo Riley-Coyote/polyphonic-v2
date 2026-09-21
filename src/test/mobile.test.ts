@@ -110,6 +110,12 @@ describe('phone chrome', () => {
 
 describe('the conversations drawer', () => {
   const drawer = () => readRepoFile('src/components/mobile/MobileNavDrawer.tsx');
+  const STUDIO_SECTION_COUNT = (
+    drawer().slice(
+      drawer().indexOf('const STUDIO_SECTIONS'),
+      drawer().indexOf('];', drawer().indexOf('const STUDIO_SECTIONS')),
+    ).match(/\{ label:/g) ?? []
+  ).length;
 
   it('puts conversations above sections, not under a settings accordion', () => {
     const src = drawer();
@@ -118,12 +124,35 @@ describe('the conversations drawer', () => {
     expect(threads).toBeGreaterThan(-1);
     expect(tiles).toBeGreaterThan(threads);
 
-    // The twelve-page settings accordion is gone; one tile goes to its root.
+    // The twelve-page settings accordion is gone; the gear goes to its root.
     expect(src).not.toContain('SETTINGS_ROUTES');
     expect(src).not.toContain('settingsOpen');
     expect(src).toContain("go('/settings')");
     // "Chat" is not a tile — the conversations are the surface above it.
     expect(src).not.toMatch(/label: 'Chat'/);
+  });
+
+  it('keeps the tile grid whole instead of stranding Settings on its own row', () => {
+    const src = drawer();
+    const tiles = src.indexOf('className="mobile-nav-tiles"');
+    const grid = src.slice(tiles, src.indexOf('</nav>', tiles));
+    // Six tiles in studio: Activity plus the five studio sections. Settings is
+    // not among them — a seventh tile would sit alone on a third row.
+    expect(STUDIO_SECTION_COUNT).toBe(5);
+    expect(grid).not.toContain('Settings');
+    // It rides the account row in the footer, with the tiles' five states.
+    const footer = src.slice(src.indexOf('className="mobile-nav-footer"'));
+    expect(footer).toContain('mobile-nav-account-settings');
+    expect(footer).toContain("aria-label=\"Settings\"");
+
+    const styles = readRepoFile('src/index.css');
+    for (const state of [':hover', ':active', ':focus-visible', '[data-active="true"]']) {
+      expect(styles).toContain(`.mobile-nav-account-settings${state}`);
+    }
+    expect(styles).toMatch(/\.mobile-nav-account \{[^}]*min-height: var\(--mobile-row-h\)/);
+    // 40px drawn, 44px hit — same as the app bar's icon buttons.
+    expect(styles).toMatch(/\.mobile-nav-account-settings \{[^}]*width: 40px/);
+    expect(styles).toContain('.mobile-nav-account-settings::after');
   });
 
   it('reuses the desktop grouping rather than inventing a second one', () => {

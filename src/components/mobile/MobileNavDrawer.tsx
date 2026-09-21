@@ -368,26 +368,29 @@ export default function MobileNavDrawer() {
                 <span>{label}</span>
               </button>
             ))}
-            <button
-              type="button"
-              className="mobile-nav-tile"
-              data-active={isActiveRoute(location.pathname, '/settings') ? 'true' : undefined}
-              onClick={() => go('/settings')}
-              aria-current={isActiveRoute(location.pathname, '/settings') ? 'page' : undefined}
-            >
-              <Settings size={18} strokeWidth={1.7} aria-hidden="true" />
-              <span>Settings</span>
-            </button>
           </nav>
         </div>
 
         <div className="mobile-nav-footer">
+          {/* Settings lives here rather than as a seventh tile stranded on a
+              row of its own: it is account-shaped, and the account row is
+              already the one thing at the bottom of the drawer. */}
           <div className="mobile-nav-account">
-            <Bot size={18} strokeWidth={1.7} />
-            <div>
+            <Bot size={18} strokeWidth={1.7} aria-hidden="true" />
+            <div className="mobile-nav-account-copy">
               <div className="mobile-nav-account-name">{user?.email || 'Account'}</div>
               <div className="mobile-nav-account-sub">signed in</div>
             </div>
+            <button
+              type="button"
+              className="mobile-nav-account-settings"
+              data-active={isActiveRoute(location.pathname, '/settings') ? 'true' : undefined}
+              onClick={() => go('/settings')}
+              aria-label="Settings"
+              aria-current={isActiveRoute(location.pathname, '/settings') ? 'page' : undefined}
+            >
+              <Settings size={18} strokeWidth={1.7} aria-hidden="true" />
+            </button>
           </div>
           <button type="button" className="mobile-nav-signout" onClick={handleSignOut}>
             Sign out
