@@ -125,7 +125,7 @@ export default function EffortControl({
         aria-expanded={open}
         onClick={() => {
           if (disabled) return;
-          setActive(Math.max(0, choices.indexOf(value)));
+          setActive(Math.max(0, choices.indexOf(value as (typeof choices)[number])));
           setOpen((v) => !v);
         }}
       >
