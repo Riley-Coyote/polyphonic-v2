@@ -8,6 +8,7 @@ SQL editor.
 |---|---|---|
 | `rls-coverage.sql` | Security #3 | Find public-schema tables missing RLS or policies |
 | `policy-owner-scope.sql` | Security #3 | Find policies that may not be owner-scoped |
+| `definer-function-exposure.sql` | Security #3 | Find SECURITY DEFINER functions users can call that are not on the reviewed list |
 | `user-cascade.sql` | Reliability #4 | Find user-FK relations missing `ON DELETE CASCADE` |
 | `disk-usage-diagnostics.sql` | Operations | Find database, WAL, table/index, bucket-object, queue, bloat, and retention cleanup pressure |
 | `disk-usage-triage-compact.sql` | Operations | Smaller one-result disk triage for Supabase SQL Editor copy/paste |
@@ -17,6 +18,7 @@ SQL editor.
 ```bash
 psql "$STAGING_DATABASE_URL" -f supabase/audits/rls-coverage.sql
 psql "$STAGING_DATABASE_URL" -f supabase/audits/policy-owner-scope.sql
+psql "$STAGING_DATABASE_URL" -f supabase/audits/definer-function-exposure.sql
 psql "$STAGING_DATABASE_URL" -f supabase/audits/user-cascade.sql
 psql "$STAGING_DATABASE_URL" -f supabase/audits/disk-usage-diagnostics.sql
 psql "$STAGING_DATABASE_URL" -f supabase/audits/disk-usage-triage-compact.sql
@@ -34,6 +36,7 @@ Each script ends with a comment block stating its pass criterion. In short:
   or join that resolves to `auth.uid()` indirectly) or documented as an
   intentional service-only / published-read exception in
   `PRODUCTION_AUDIT.md` §14 Accepted-risk register.
+- **definer-function-exposure.sql** — every row has `reviewed = true`.
 - **user-cascade.sql** — result set #1 returns zero rows, or every row is
   documented as intentional in §14 Accepted-risk.
 - **disk-usage-triage-compact.sql** — inspect sections `01` through `07`.
