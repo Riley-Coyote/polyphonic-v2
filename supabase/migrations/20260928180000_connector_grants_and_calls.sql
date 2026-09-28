@@ -1,0 +1,88 @@
+-- The Polyphonic connector (supabase/functions/polyphonic-connect).
+--
+-- connector_grants: which companions each connected app may reach. The person
+-- writes it on /oauth/consent, with their own polyphonic.chat session, right
+-- before approving the sign-in. The connector checks every companion against
+-- it.
+--
+-- connector_calls: one content-free line per tool call (who, which app, which
+-- tool, which companion, how it went). It backs the rate limits, the daily
+-- write caps and "last used" on Settings -> Connected apps. Only the service
+-- role writes it.
+--
+-- Visits reuse entity_activity_log (activity_type 'connector_visit'), so they
+-- appear in the activity timeline and notifications with no new table.
+
+create table if not exists public.connector_grants (
+  user_id uuid not null references auth.users(id) on delete cascade,
+  client_id text not null,
+  client_name text not null default '',
+  redirect_host text,
+  agent_ids text[] not null default '{}',
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  primary key (user_id, client_id),
+  constraint connector_grants_client_id_len check (char_length(client_id) between 1 and 200),
+  constraint connector_grants_client_name_len check (char_length(client_name) <= 200),
+  constraint connector_grants_agent_ids_len check (cardinality(agent_ids) <= 64)
+);
+
+alter table public.connector_grants enable row level security;
+
+drop policy if exists "Connector grants: own rows readable" on public.connector_grants;
+create policy "Connector grants: own rows readable"
+  on public.connector_grants for select to authenticated
+  using ((select auth.uid()) = user_id);
+
+-- Writes need the person's own polyphonic.chat session. A token issued to a
+-- connected app carries a client_id claim, so an app can never widen its own
+-- grant through the REST API.
+drop policy if exists "Connector grants: own session inserts" on public.connector_grants;
+create policy "Connector grants: own session inserts"
+  on public.connector_grants for insert to authenticated
+  with check ((select auth.uid()) = user_id and (select auth.jwt() ->> 'client_id') is null);
+
+drop policy if exists "Connector grants: own session updates" on public.connector_grants;
+create policy "Connector grants: own session updates"
+  on public.connector_grants for update to authenticated
+  using ((select auth.uid()) = user_id and (select auth.jwt() ->> 'client_id') is null)
+  with check ((select auth.uid()) = user_id and (select auth.jwt() ->> 'client_id') is null);
+
+drop policy if exists "Connector grants: own session deletes" on public.connector_grants;
+create policy "Connector grants: own session deletes"
+  on public.connector_grants for delete to authenticated
+  using ((select auth.uid()) = user_id and (select auth.jwt() ->> 'client_id') is null);
+
+drop trigger if exists connector_grants_updated_at on public.connector_grants;
+create trigger connector_grants_updated_at
+  before update on public.connector_grants
+  for each row execute function public.update_updated_at_column();
+
+create table if not exists public.connector_calls (
+  id bigint generated always as identity primary key,
+  user_id uuid not null references auth.users(id) on delete cascade,
+  client_id text not null,
+  tool text not null,
+  agent_id text,
+  ok boolean not null,
+  code text,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists connector_calls_user_client_time_idx
+  on public.connector_calls (user_id, client_id, created_at desc);
+create index if not exists connector_calls_user_agent_tool_time_idx
+  on public.connector_calls (user_id, agent_id, tool, created_at desc);
+
+alter table public.connector_calls enable row level security;
+
+drop policy if exists "Connector calls: own rows readable" on public.connector_calls;
+create policy "Connector calls: own rows readable"
+  on public.connector_calls for select to authenticated
+  using ((select auth.uid()) = user_id);
+-- No insert, update or delete policies: only the service role writes here.
+
+-- "Talked with you in <app>" rows are read per companion, newest first.
+create index if not exists entity_activity_log_connector_visits_idx
+  on public.entity_activity_log (user_id, agent_id, created_at desc)
+  where activity_type = 'connector_visit';

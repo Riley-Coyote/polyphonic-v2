@@ -147,6 +147,8 @@ project_id = "kknchdnrujzheulqzowv"
     verify_jwt = false
   [functions.openclaw-status]
     verify_jwt = false
+  [functions.polyphonic-connect]
+    verify_jwt = false
   [functions.profile-chat]
     verify_jwt = false
   [functions.scheduled-task-run]
