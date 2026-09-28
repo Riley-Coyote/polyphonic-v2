@@ -53,6 +53,8 @@ const OpenRouterCallback = lazy(() => import("./pages/OpenRouterCallback"));
 const PrivacyPage = lazy(() => import("./pages/PrivacyPage"));
 const TermsPage = lazy(() => import("./pages/TermsPage"));
 const TrustPage = lazy(() => import("./pages/TrustPage"));
+const ConnectPage = lazy(() => import("./pages/ConnectPage"));
+const OAuthConsentPage = lazy(() => import("./pages/OAuthConsentPage"));
 const CreditsPage = lazy(() => import("./pages/CreditsPage"));
 const ChatView = lazy(() => import("./pages/ChatView"));
 const ThreadDetailDrawer = lazy(() => import("./components/drawers/ThreadDetailDrawer"));
@@ -87,6 +89,11 @@ const ComposerHarness = import.meta.env.DEV
 const MobileNavHarness = import.meta.env.DEV
   ? lazy(() => import("./dev/MobileNavHarness"))
   : null;
+/* DEV-only connector harness: the consent page and Connected apps, fed
+   fixture props, since both need a live sign-in to render for real. */
+const ConnectorHarness = import.meta.env.DEV
+  ? lazy(() => import("./dev/ConnectorHarness"))
+  : null;
 const PublicProfileView = lazy(() => import("./pages/PublicProfileView"));
 const AgentsList = lazy(() => import("./pages/settings/AgentsList"));
 const AgentDetail = lazy(() => import("./pages/settings/AgentDetail"));
@@ -97,6 +104,7 @@ const AppearanceSettings = lazy(() => import("./pages/settings/AppearanceSetting
 const VoiceSettings = lazy(() => import("./pages/settings/VoiceSettings"));
 const AccountSettings = lazy(() => import("./pages/settings/AccountSettings"));
 const LocalRuntimeSettings = lazy(() => import("./pages/settings/LocalRuntimeSettings"));
+const ConnectedAppsSettings = lazy(() => import("./pages/settings/ConnectedAppsSettings"));
 const PublicProfileSettings = lazy(() => import("./pages/settings/PublicProfileSettings"));
 const CronHealthSettings = lazy(() => import("./pages/settings/CronHealthSettings"));
 const HelpGuide = lazy(() => import("./pages/settings/HelpGuide"));
@@ -127,6 +135,8 @@ function FirstRunGate({ children }: { children: React.ReactNode }) {
   const isPublicRoute =
     location.pathname.startsWith('/auth/')
     || location.pathname === '/reset-password'
+    || location.pathname.startsWith('/oauth/')
+    || location.pathname === '/connect'
     || location.pathname === '/privacy'
     || location.pathname === '/terms'
     || location.pathname.startsWith('/u/')
@@ -443,6 +453,8 @@ const App = () => (
                 <Route path="/privacy" element={<PrivacyPage />} />
                 <Route path="/terms" element={<TermsPage />} />
                 <Route path="/trust" element={<TrustPage />} />
+                <Route path="/connect" element={<ConnectPage />} />
+                <Route path="/oauth/consent" element={<ProtectedRoute skipTokenGate><OAuthConsentPage /></ProtectedRoute>} />
                 <Route path="/credits" element={<CreditsPage />} />
                 {/* Public profile (no app shell, no auth required) */}
                 <Route path="/u/:handle" element={<PublicProfileView mode="view" />} />
@@ -481,6 +493,7 @@ const App = () => (
                 <Route path="/settings/routines" element={<ProtectedRoute><AppShell><ProfileScheduleView /></AppShell></ProtectedRoute>} />
                 <Route path="/settings/voice" element={<ProtectedRoute><AppShell><VoiceSettings /></AppShell></ProtectedRoute>} />
                 <Route path="/settings/local-runtime" element={<ProtectedRoute><AppShell><LocalRuntimeSettings /></AppShell></ProtectedRoute>} />
+                <Route path="/settings/connected-apps" element={<ProtectedRoute><AppShell><ConnectedAppsSettings /></AppShell></ProtectedRoute>} />
                 <Route path="/settings/portability" element={<ProtectedRoute><AppShell><ImportView /></AppShell></ProtectedRoute>} />
                 <Route path="/settings/account" element={<ProtectedRoute skipTokenGate><AppShell><AccountSettings /></AppShell></ProtectedRoute>} />
                 <Route path="/settings/help" element={<ProtectedRoute skipTokenGate><AppShell><HelpGuide /></AppShell></ProtectedRoute>} />
@@ -496,6 +509,9 @@ const App = () => (
                 )}
                 {import.meta.env.DEV && MobileNavHarness && (
                   <Route path="/__dev/mobile-nav" element={<MobileNavHarness />} />
+                )}
+                {import.meta.env.DEV && ConnectorHarness && (
+                  <Route path="/__dev/connector" element={<ConnectorHarness />} />
                 )}
                 <Route path="/dashboard" element={<Navigate to="/mind" replace />} />
                 {/* /notebook is the simplified vocabulary for /journal —

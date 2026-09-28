@@ -20,6 +20,7 @@ const routeLoaders: Record<string, RouteLoader> = {
   '/settings/routines': () => import('@/pages/ProfileScheduleView'),
   '/settings/voice': () => import('@/pages/settings/VoiceSettings'),
   '/settings/local-runtime': () => import('@/pages/settings/LocalRuntimeSettings'),
+  '/settings/connected-apps': () => import('@/pages/settings/ConnectedAppsSettings'),
   '/settings/portability': () => import('@/pages/ImportView'),
   '/settings/account': () => import('@/pages/settings/AccountSettings'),
   '/settings/help': () => import('@/pages/settings/HelpGuide'),

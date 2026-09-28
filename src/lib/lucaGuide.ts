@@ -46,6 +46,7 @@ export const GUIDE_NAV_TARGETS: LucaGuideTarget[] = [
   { id: '/settings/general', label: 'General', description: 'Open general workspace preferences.' },
   { id: '/settings/voice', label: 'Voice', description: 'Open voice and security controls.' },
   { id: '/settings/local-runtime', label: 'Local runtime', description: 'Open local runtime and machine-side setup.' },
+  { id: '/settings/connected-apps', label: 'Connected apps', description: 'Open the apps that can reach your companions, and the connector address.' },
   { id: '/settings/portability', label: 'Import & export', description: 'Open data import, export, and portability controls.' },
   { id: '/settings/account', label: 'Account', description: 'Open account and preference controls.' },
   { id: '/settings/skills', label: 'Self-model', description: 'Open skill and self-model controls.' },
@@ -123,6 +124,13 @@ export function routeInfo(path: string): Pick<LucaGuideContext, 'pageTitle' | 'r
       pageTitle: 'Voice & security',
       routeFamily: 'settings',
       summary: 'Voice connection, speech behavior, and security preferences.',
+    };
+  }
+  if (path.startsWith('/settings/connected-apps')) {
+    return {
+      pageTitle: 'Connected apps',
+      routeFamily: 'settings',
+      summary: 'Apps like Claude and ChatGPT that can reach your companions, and the address to connect new ones.',
     };
   }
   if (path.startsWith('/settings/local-runtime')) {

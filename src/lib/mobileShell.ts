@@ -60,6 +60,10 @@ export function getMobileSurfaceMeta(
     return { title: 'Models', subtitle: 'AI connections', contextAction: 'activity' };
   }
 
+  if (pathname.startsWith('/settings/connected-apps')) {
+    return { title: 'Connected apps', subtitle: 'Your companions in other apps', contextAction: 'activity' };
+  }
+
   if (pathname.startsWith('/settings/local-runtime')) {
     return { title: 'Local runtime', subtitle: 'Local agent bridge', contextAction: 'activity' };
   }

@@ -21,6 +21,7 @@ const AGENTS_GROUP: Entry[] = [
 const SYSTEM_GROUP: Entry[] = [
   { key: 'general', label: 'General', path: '/settings/general' },
   { key: 'models', label: 'Models', path: '/settings/models' },
+  { key: 'connected-apps', label: 'Connected apps', path: '/settings/connected-apps' },
   { key: 'appearance', label: 'Appearance', path: '/settings/appearance' },
   { key: 'skills', label: 'Self-model', path: '/settings/skills', studioOnly: true },
   { key: 'routines', label: 'Routines', path: '/settings/routines', studioOnly: true },
