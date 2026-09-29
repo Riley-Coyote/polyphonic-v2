@@ -102,8 +102,12 @@ export default function ConnectPage() {
               read their memory, their journal and your recent conversations.
             </li>
             <li>
-              They can save memories, journal entries and a short note of each visit. Visits show up in
-              your activity on Polyphonic.
+              They can save what matters and a short note of each visit, labeled with the app it came
+              from. Visits show up in your activity on Polyphonic.
+            </li>
+            <li>
+              Who your companions are only changes at home, by them. An app can tell them what happened;
+              they decide what it means.
             </li>
           </ol>
           <p className="connect-note">

@@ -15670,6 +15670,11 @@ body[data-canvas-resizing]::after {
   color: var(--text-body);
 }
 
+.consent-can-after {
+  margin: -8px 0 22px;
+  color: var(--text-tertiary);
+}
+
 .consent-can li::before {
   content: '';
   position: absolute;

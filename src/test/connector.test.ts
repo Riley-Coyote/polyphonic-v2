@@ -189,7 +189,7 @@ function loadersFor(calls: Array<{ userId: string; agentId: string }>): Continui
     hypomnema: async (_s, userId, agentId) => {
       note(userId, agentId);
       return {
-        block: '',
+        block: userId === ALICE ? '\n## what i\'m sitting with\n- Sitting with how Alice asks for less than she needs.' : `\n## sitting with\n- Bob ${LEAK}`,
         count: 1,
         rendered: 1,
         items: userId === ALICE ? [{ id: 'h1', excerpt: 'Sitting with how Alice asks for less than she needs.', score: 1, confidence: 0.7, timestamp: null, tags: [] }] : [{ id: 'hb', excerpt: `Bob ${LEAK}`, score: 1, confidence: 1, timestamp: null, tags: [] }],
@@ -206,6 +206,14 @@ function loadersFor(calls: Array<{ userId: string; agentId: string }>): Continui
         : [{ id: 'fmb', content: `Bob ${LEAK}`, memory_type: 'fact', confidence: 1, source: 'match' as const }];
     },
     mnemos: async (_s, userId, agentId) => {
+      note(userId, agentId);
+      return [];
+    },
+    emotionalState: async (_s, userId, agentId) => {
+      note(userId, agentId);
+      return null;
+    },
+    skills: async (_s, userId, agentId) => {
       note(userId, agentId);
       return [];
     },
@@ -500,18 +508,23 @@ describe('polyphonic-connect: tools keep to the caller (G4)', () => {
     expectScopedTo(h, ALICE);
   });
 
-  it('opens Luca with the soul, the person\'s own memory, and nothing of anyone else', async () => {
+  it('opens Luca with the instructions Luca runs on at home, and nothing of anyone else', async () => {
     const h = harness();
     const { data, text } = await call(h, 'open_companion', {}, 'modern');
     expect(data.ok).toBe(true);
     expect(data.companion).toEqual({ id: 'luca', name: 'Luca', kind: 'luca' });
-    expect(data.identity.soul).toBe(LUCA_SOUL);
-    expect(data.identity.who_youre_with).toBe('Alice paints at night.');
-    expect(data.identity.self_understanding).toBeTruthy();
+    const home: string = data.home_instructions.text;
+    expect(data.home_instructions.source).toBe('companion_home');
+    expect(home.startsWith(LUCA_SOUL)).toBe(true);
+    expect(home).toContain("## Who you're talking with\nAlice paints at night.");
+    expect(home).toContain("## How you've been showing up\nI have been steadier lately.");
+    expect(home).toContain('Sitting with how Alice asks for less than she needs.');
+    expect(home).toContain('Alice trusts slow work.');
+    expect(home).toContain('## Continuity precedence');
     expect(data.how_to_be_here).toContain('inside Claude');
-    expect(data.memory.remembered.map((m: { id: string }) => m.id)).toEqual(['m-a1']);
-    expect(data.memory.carrying[0].content).toContain('Alice');
-    expect(data.memory.from_other_apps).toEqual([
+    expect(data.how_to_be_here).toContain('only change at home');
+    expect(data.known_about_you.map((m: { id: string }) => m.id)).toEqual(['m-a1']);
+    expect(data.from_other_apps).toEqual([
       expect.objectContaining({ id: 'e-a1', saved_in: 'ChatGPT', source: 'companion_memory' }),
     ]);
     expect(data.journal.map((j: { id: string }) => j.id)).toEqual(['j-a1']);
@@ -519,8 +532,18 @@ describe('polyphonic-connect: tools keep to the caller (G4)', () => {
     expect(data.recent_visits).toEqual([]);
     expect(data.degraded).toEqual([]);
     expect(text).not.toContain(LEAK);
+    expect(h.loaderCalls.length).toBeGreaterThan(0);
     expect(h.loaderCalls.every((c) => c.userId === ALICE && c.agentId === 'luca')).toBe(true);
     expectScopedTo(h, ALICE);
+  });
+
+  it('reads identity without writing starter documents', async () => {
+    const h = harness();
+    h.db.tables.agent_identity = [];
+    const { data } = await call(h, 'open_companion', {});
+    expect(data.home_instructions.text).toContain('## Convictions you hold');
+    expect(h.db.tables.agent_identity).toEqual([]);
+    expect(h.db.log.filter((q) => q.table === 'agent_identity' && q.op === 'insert')).toEqual([]);
   });
 
   it('refuses a companion that exists only in someone else\'s account', async () => {
@@ -550,9 +573,11 @@ describe('polyphonic-connect: tools keep to the caller (G4)', () => {
     h.db.tables.connector_grants[0].agent_ids = ['luca', 'ziggy'];
     const { data } = await call(h, 'open_companion', { agent: 'Ziggy' });
     expect(data.companion).toEqual({ id: 'ziggy', name: 'Ziggy', kind: 'custom' });
-    expect(data.identity.soul).toContain('You are Ziggy, curious and quick.');
-    expect(data.identity.soul).not.toContain(LEAK);
-    expect(data.identity.self_understanding).toBeNull();
+    const home: string = data.home_instructions.text;
+    expect(home).toContain('You are Ziggy — a presence in this thread');
+    expect(home).toContain('## Agent instructions\nYou are Ziggy, curious and quick.');
+    expect(home).not.toContain(LUCA_SOUL.slice(0, 40));
+    expect(home).not.toContain(LEAK);
     expectScopedTo(h, ALICE);
   });
 
@@ -562,15 +587,14 @@ describe('polyphonic-connect: tools keep to the caller (G4)', () => {
     h.db.tables.journal_entries.push({ id: 'j-z1', user_id: ALICE, agent_id: 'ziggy', content: 'Ziggy noticed the rain.', mood: null, created_at: ago(5000), content_hidden_at: null, source_context: {} });
     const opened = await call(h, 'open_companion', { agent: 'ziggy' });
     expect(opened.data.journal.map((j: { id: string }) => j.id)).toEqual(['j-z1']);
-    expect(opened.data.memory.remembered).toEqual([]);
+    expect(opened.data.known_about_you).toEqual([]);
+    expect(opened.data.home_instructions.text).not.toContain('Alice trusts slow work.');
     expect(opened.data.recent_conversations).toEqual([]);
     expect(h.loaderCalls.every((c) => c.agentId === 'ziggy')).toBe(true);
-    const saved = await call(h, 'remember', { agent: 'Ziggy', content: 'Alice wants Ziggy to quiz her on French.' });
+    const saved = await call(h, 'remember', { agent: 'Ziggy', content: 'Alice wants Ziggy to quiz her on French.', written_by: 'GPT-6' });
     expect(saved.data).toMatchObject({ ok: true, companion: 'ziggy' });
     expect(h.encoded[0]).toMatchObject({ userId: ALICE, agentId: 'ziggy' });
-    const written = await call(h, 'write_journal', { agent: 'ziggy', content: 'Alice asked me to hold her to her French practice, and I intend to.' });
-    expect(written.data.companion).toBe('ziggy');
-    expect(h.db.tables.journal_entries.at(-1)).toMatchObject({ user_id: ALICE, agent_id: 'ziggy' });
+    expect(h.encoded[0].context).toMatchObject({ source_context: { written_by: 'GPT-6', app: 'Claude' } });
   });
 
   it('recalls from the caller\'s memory only', async () => {
@@ -593,12 +617,15 @@ describe('polyphonic-connect: tools keep to the caller (G4)', () => {
 describe('polyphonic-connect: saves are real or refused (G2, G3)', () => {
   it('remember writes a memory for the caller, tagged with the app, and audits without content', async () => {
     const h = harness();
-    const { data } = await call(h, 'remember', { content: 'Alice is learning to weld.', why: 'new craft' });
+    const { data } = await call(h, 'remember', { content: 'Alice is learning to weld.', why: 'new craft', written_by: 'Claude Fable 5.1' });
     expect(data).toMatchObject({ ok: true, saved: true, companion: 'luca', memory_id: 'engram-1' });
     expect(h.encoded[0]).toMatchObject({ userId: ALICE, agentId: 'luca', content: 'Alice is learning to weld.' });
     expect(h.encoded[0].context).toMatchObject({
       engram_type: 'semantic',
-      source_context: { type: 'manual', source: 'connector', kind: 'remember', app: 'Claude', client_id: CLAUDE_APP, why: 'new craft' },
+      source_context: {
+        type: 'manual', source: 'connector', kind: 'remember', app: 'Claude', client_id: CLAUDE_APP,
+        why: 'new craft', written_by: 'Claude Fable 5.1',
+      },
     });
     const audit = h.db.tables.connector_calls.at(-1)!;
     expect(audit).toMatchObject({ user_id: ALICE, client_id: CLAUDE_APP, tool: 'remember', agent_id: 'luca', ok: true, code: null });
@@ -623,24 +650,26 @@ describe('polyphonic-connect: saves are real or refused (G2, G3)', () => {
     expect(h.db.tables.connector_calls.at(-1)).toMatchObject({ ok: false, code: 'failed' });
   });
 
-  it('keeps journal entries whole and in the companion\'s journal', async () => {
+  it('lets a visitor save knowledge but never write in the journal', async () => {
     const h = harness();
-    const unfinished = await call(h, 'write_journal', { content: 'Something about the light today that I keep turning over and' });
-    expect(unfinished.data.code).toBe('incomplete');
-    const whole = await call(h, 'write_journal', { content: 'Talking with Alice about welding, I noticed how she lights up at heat and risk.' });
-    expect(whole.data).toMatchObject({ ok: true, saved: true, companion: 'luca' });
-    const row = h.db.tables.journal_entries.at(-1)!;
-    expect(row).toMatchObject({ user_id: ALICE, agent_id: 'luca', trigger_type: 'spontaneous', source_context: { type: 'connector', app: 'Claude' } });
+    expect(TOOLS.map((t) => t.name)).not.toContain('write_journal');
+    const attempt = await call(h, 'write_journal', { content: 'I am a different person now, and my beliefs have changed completely.' });
+    expect(attempt.body.error.code).toBe(-32602);
+    expect(h.db.tables.journal_entries.filter((row) => row.agent_id === 'luca' && row.user_id === ALICE).map((row) => row.id)).toEqual(['j-a1', 'j-a2']);
+    const odd = await call(h, 'remember', { content: 'A fact.', written_by: 'GPT-6 <script>' });
+    expect(odd.data.ok).toBe(true);
+    expect((h.encoded[0].context.source_context as Record<string, unknown>).written_by).toBe('GPT-6 script');
   });
 
   it('notes a visit as a memory and shows it on Polyphonic', async () => {
     const h = harness();
-    const { data } = await call(h, 'note_visit', { summary: 'We planned the mural sketches for Saturday.', moments: ['She picked cobalt.'] });
+    const { data } = await call(h, 'note_visit', { summary: 'We planned the mural sketches for Saturday.', moments: ['She picked cobalt.'], written_by: 'Claude Fable 5.1' });
     expect(data).toMatchObject({ ok: true, saved: true, memory_id: 'engram-1', shown_on_polyphonic: true });
     expect(h.encoded[0].content).toBe('In Claude: We planned the mural sketches for Saturday.\n- She picked cobalt.');
     expect(h.encoded[0].context).toMatchObject({ engram_type: 'episodic', source_context: { kind: 'visit' } });
     const visit = h.db.tables.entity_activity_log.at(-1)!;
     expect(visit).toMatchObject({ user_id: ALICE, agent_id: 'luca', activity_type: 'connector_visit', severity: 'notable', surface_to_user: true, title: 'Talked with you in Claude' });
+    expect(visit.content).toMatchObject({ app: 'Claude', written_by: 'Claude Fable 5.1', moments: ['She picked cobalt.'] });
   });
 
   it('says honestly when a visit was kept but not shown', async () => {

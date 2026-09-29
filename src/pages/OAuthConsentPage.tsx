@@ -299,8 +299,13 @@ export function ConsentView({
                   <ul className="consent-can">
                     <li>speak as themselves, from their soul and what they remember about you</li>
                     <li>read their memory, their journal and your recent conversations</li>
-                    <li>add memories, journal entries and a note of each visit</li>
+                    <li>save what matters, and a note of each visit, labeled with where it came from</li>
                   </ul>
+                )}
+                {chosen && (
+                  <p className="consent-can-lead consent-can-after">
+                    Who they are only changes at home, by them.
+                  </p>
                 )}
 
                 {error && <p className="consent-error" role="alert">{error}</p>}
