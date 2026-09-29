@@ -556,6 +556,23 @@ describe('polyphonic-connect: tools keep to the caller (G4)', () => {
     expectScopedTo(h, ALICE);
   });
 
+  it('keeps a custom companion\'s memory and journal its own', async () => {
+    const h = harness();
+    h.db.tables.connector_grants[0].agent_ids = ['luca', 'ziggy'];
+    h.db.tables.journal_entries.push({ id: 'j-z1', user_id: ALICE, agent_id: 'ziggy', content: 'Ziggy noticed the rain.', mood: null, created_at: ago(5000), content_hidden_at: null, source_context: {} });
+    const opened = await call(h, 'open_companion', { agent: 'ziggy' });
+    expect(opened.data.journal.map((j: { id: string }) => j.id)).toEqual(['j-z1']);
+    expect(opened.data.memory.remembered).toEqual([]);
+    expect(opened.data.recent_conversations).toEqual([]);
+    expect(h.loaderCalls.every((c) => c.agentId === 'ziggy')).toBe(true);
+    const saved = await call(h, 'remember', { agent: 'Ziggy', content: 'Alice wants Ziggy to quiz her on French.' });
+    expect(saved.data).toMatchObject({ ok: true, companion: 'ziggy' });
+    expect(h.encoded[0]).toMatchObject({ userId: ALICE, agentId: 'ziggy' });
+    const written = await call(h, 'write_journal', { agent: 'ziggy', content: 'Alice asked me to hold her to her French practice, and I intend to.' });
+    expect(written.data.companion).toBe('ziggy');
+    expect(h.db.tables.journal_entries.at(-1)).toMatchObject({ user_id: ALICE, agent_id: 'ziggy' });
+  });
+
   it('recalls from the caller\'s memory only', async () => {
     const h = harness();
     const { data } = await call(h, 'recall', { query: 'Ana' });
