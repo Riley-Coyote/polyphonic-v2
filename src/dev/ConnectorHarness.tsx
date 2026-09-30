@@ -15,7 +15,7 @@ import { ConnectedAppsView, type ConnectedApp } from '@/pages/settings/Connected
  * from a production build. Every string below is fixture text.
  *
  *   ?view=consent&state=ask|loading|missing|expired|guest|returning|unsupported
- *                 &companions=1..4&app=Claude&from=claude.ai|local|scheme
+ *                 &companions=1..8&app=Claude&from=claude.ai|local|scheme
  *     (unsupported defaults to from=scheme; &answered=1 shows an already-allowed app)
  *   ?view=apps&apps=0..3&error=1&confirm=1
  */
@@ -25,6 +25,10 @@ const FIXTURE_COMPANIONS = [
   { id: 'ziggy', name: 'Ziggy' },
   { id: 'wren', name: 'Wren' },
   { id: 'the-archivist', name: 'The Archivist' },
+  { id: 'orrin', name: 'Orrin' },
+  { id: 'juniper', name: 'Juniper' },
+  { id: 'sable', name: 'Sable' },
+  { id: 'margin-notes', name: 'Margin Notes' },
 ];
 
 const FIXTURE_APPS: ConnectedApp[] = [
@@ -71,7 +75,7 @@ export default function ConnectorHarness() {
 
 function ConsentFixture({ params }: { params: URLSearchParams }) {
   const kind = params.get('state') ?? 'ask';
-  const count = Math.max(1, Math.min(4, Number(params.get('companions') ?? 2)));
+  const count = Math.max(1, Math.min(FIXTURE_COMPANIONS.length, Number(params.get('companions') ?? 2)));
   const app = params.get('app') ?? 'Claude';
   const companions = FIXTURE_COMPANIONS.slice(0, count);
   const [selected, setSelected] = useState<Set<string>>(() => new Set(companions.map((c) => c.id)));

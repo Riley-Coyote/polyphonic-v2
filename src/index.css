@@ -15568,6 +15568,39 @@ body[data-canvas-resizing]::after {
   margin: 22px 0 18px;
 }
 
+/* Many companions: Luca keeps a full row and the rest pair up, so a long list
+   still leaves Allow and Deny on screen. Rows keep the 44px hit area. */
+.consent-companions.is-many {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.consent-companions.is-many .consent-companion {
+  gap: 10px;
+  padding: 0 12px;
+}
+
+.consent-companions.is-many .consent-companion.is-primary {
+  grid-column: 1 / -1;
+}
+
+@media (max-width: 340px) {
+  .consent-companions.is-many {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* Short screens: less air between the parts of a long consent card. */
+@media (max-height: 820px) {
+  .consent-companions.is-many {
+    margin: 16px 0 12px;
+  }
+
+  .consent-companions.is-many ~ .consent-actions {
+    margin-top: 14px;
+  }
+}
+
 .consent-companion {
   display: flex;
   align-items: center;

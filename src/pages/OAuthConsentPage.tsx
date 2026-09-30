@@ -31,6 +31,11 @@ export interface ConsentAsk {
   companions: ConnectorCompanion[];
 }
 
+/** Past this many companions the list pairs them up, so the card stays on one screen. */
+const MANY_COMPANIONS = 4;
+/** Past this many chosen companions, the summary says a count instead of every name. */
+const MANY_NAMED = 3;
+
 /** Names of the apps Polyphonic connects with; a request using one from elsewhere is told so plainly. */
 const KNOWN_APP_NAME = /\b(claude|chatgpt|codex)\b/i;
 
@@ -224,10 +229,11 @@ export function ConsentView({
   onAllow: () => void;
   onDeny: () => void;
 }) {
+  const chosenNames =
+    state.kind === 'ask' ? state.details.companions.filter((c) => selected.has(c.id)).map((c) => c.name) : [];
+  // The names are already on screen above, so a long list is said as a count.
   const chosen =
-    state.kind === 'ask'
-      ? namesList(state.details.companions.filter((c) => selected.has(c.id)).map((c) => c.name))
-      : '';
+    chosenNames.length > MANY_NAMED ? `these ${chosenNames.length} companions` : namesList(chosenNames);
 
   return (
     <div className="relative min-h-screen w-full overflow-x-hidden" style={{ background: 'var(--floor)' }}>
@@ -240,7 +246,7 @@ export function ConsentView({
       </header>
 
       <main
-        className="relative min-h-screen w-full flex items-center justify-center px-4 sm:px-6 py-20"
+        className="relative min-h-screen w-full flex items-center justify-center px-4 sm:px-6 pt-20 pb-12 [@media(max-height:820px)]:pb-6"
         style={{ zIndex: 1 }}
       >
         <div className="relative w-full" style={{ maxWidth: 440 }}>
@@ -339,7 +345,11 @@ export function ConsentView({
                   reach.
                 </AuthCardSubtitle>
 
-                <div className="consent-companions" role="group" aria-label="Companions this app may reach">
+                <div
+                  className={`consent-companions${state.details.companions.length > MANY_COMPANIONS ? ' is-many' : ''}`}
+                  role="group"
+                  aria-label="Companions this app may reach"
+                >
                   {state.details.companions.map((companion) => {
                     const on = selected.has(companion.id);
                     return (
@@ -348,7 +358,7 @@ export function ConsentView({
                         type="button"
                         role="checkbox"
                         aria-checked={on}
-                        className="consent-companion"
+                        className={`consent-companion${companion.id === 'luca' ? ' is-primary' : ''}`}
                         onClick={() => onToggle(companion.id)}
                         disabled={busy !== null}
                       >
