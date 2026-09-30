@@ -1597,6 +1597,69 @@ export type Database = {
           },
         ]
       }
+      connector_calls: {
+        Row: {
+          agent_id: string | null
+          client_id: string
+          code: string | null
+          created_at: string
+          id: number
+          ok: boolean
+          tool: string
+          user_id: string
+        }
+        Insert: {
+          agent_id?: string | null
+          client_id: string
+          code?: string | null
+          created_at?: string
+          id?: never
+          ok: boolean
+          tool: string
+          user_id: string
+        }
+        Update: {
+          agent_id?: string | null
+          client_id?: string
+          code?: string | null
+          created_at?: string
+          id?: never
+          ok?: boolean
+          tool?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      connector_grants: {
+        Row: {
+          agent_ids: string[]
+          client_id: string
+          client_name: string
+          created_at: string
+          redirect_host: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          agent_ids?: string[]
+          client_id: string
+          client_name?: string
+          created_at?: string
+          redirect_host?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          agent_ids?: string[]
+          client_id?: string
+          client_name?: string
+          created_at?: string
+          redirect_host?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       continuity_events: {
         Row: {
           agent_id: string
