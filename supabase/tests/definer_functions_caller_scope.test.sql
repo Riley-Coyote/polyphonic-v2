@@ -1,10 +1,11 @@
 -- SECURITY DEFINER functions skip row-level security, so any of them that takes
 -- an account id must be closed to users, or must check the caller itself.
--- Covers supabase/migrations/20260926170000_lock_definer_functions_to_caller.sql.
+-- Covers supabase/migrations/20260926170000_lock_definer_functions_to_caller.sql
+-- and 20260929230000_provider_keys_server_only.sql.
 -- Run: supabase test db
 BEGIN;
 CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
-SELECT plan(22);
+SELECT plan(23);
 
 -- Every owner-rights function that signed-out or signed-in users can call must be
 -- on this reviewed list. A new one fails here until it is revoked or reviewed.
@@ -20,7 +21,6 @@ SELECT is_empty(
            OR has_function_privilege('authenticated', p.oid, 'EXECUTE'))
       AND p.proname NOT IN (
         'cognitive_memory_stats',               -- checks auth.uid()
-        'decrypt_user_api_key',                 -- checks auth.uid()
         'save_user_api_key',                    -- acts on auth.uid()
         'delete_user_api_key',                  -- acts on auth.uid()
         'mark_activity_seen',                   -- acts on auth.uid()
@@ -33,6 +33,15 @@ SELECT is_empty(
       )
   $$,
   'every owner-rights function open to users is on the reviewed list'
+);
+
+-- Provider keys open only on the server. An app connected through the Polyphonic
+-- connector holds a signed-in token, so signed-in callers must not decrypt keys.
+SELECT ok(
+  NOT has_function_privilege('anon', 'public.decrypt_user_api_key(uuid)', 'EXECUTE')
+  AND NOT has_function_privilege('authenticated', 'public.decrypt_user_api_key(uuid)', 'EXECUTE')
+  AND has_function_privilege('service_role', 'public.decrypt_user_api_key(uuid)', 'EXECUTE'),
+  'provider keys can be decrypted by server functions only'
 );
 
 -- Two accounts. Alice must not reach Bob's rows.

@@ -33,7 +33,6 @@ const SERVICE_ONLY = [
 // Callable by users on purpose: each checks the caller or only answers yes/no for RLS.
 const REVIEWED_USER_CALLABLE = new Set([
   'cognitive_memory_stats',
-  'decrypt_user_api_key',
   'save_user_api_key',
   'delete_user_api_key',
   'mark_activity_seen',
@@ -45,8 +44,21 @@ const REVIEWED_USER_CALLABLE = new Set([
   'can_read_group_message',
 ]);
 
+// Provider keys open only on the server; see the migration's header for the callers.
+const KEYS_FIX = '20260929230000_provider_keys_server_only.sql';
+
 function readRepoFile(path: string): string {
   return readFileSync(join(process.cwd(), path), 'utf8');
+}
+
+function sourceFiles(dir: string): string[] {
+  const out: string[] = [];
+  for (const entry of readdirSync(join(process.cwd(), dir), { withFileTypes: true })) {
+    const path = `${dir}/${entry.name}`;
+    if (entry.isDirectory()) out.push(...sourceFiles(path));
+    else if (/\.(ts|tsx)$/.test(entry.name)) out.push(path);
+  }
+  return out;
 }
 
 function migrationsAfterFix(): string[] {
@@ -110,6 +122,30 @@ describe('owner-rights database functions stay scoped to the caller', () => {
         expect(statement, `${file} leaves ${name} callable by users`).toMatch(/\banon\b/i);
         expect(statement, `${file} leaves ${name} callable by users`).toMatch(/\bauthenticated\b/i);
       }
+    }
+  });
+});
+
+describe('provider keys open only on the server', () => {
+  it('takes decrypt_user_api_key away from signed-out and signed-in callers', () => {
+    const sql = readRepoFile(`supabase/migrations/${KEYS_FIX}`);
+    expect(sql).toContain('REVOKE EXECUTE ON FUNCTION public.decrypt_user_api_key(uuid) FROM PUBLIC, anon, authenticated;');
+    expect(sql).toContain('GRANT EXECUTE ON FUNCTION public.decrypt_user_api_key(uuid) TO service_role;');
+  });
+
+  it('is never called from the browser', () => {
+    const callers = sourceFiles('src')
+      .filter((f) => !f.startsWith('src/test/') && f !== 'src/integrations/supabase/types.ts')
+      .filter((f) => readRepoFile(f).includes('decrypt_user_api_key'));
+    expect(callers).toEqual([]);
+  });
+
+  it('is not reopened in a later migration', () => {
+    const grant = /grant\s+(?:execute|all)[^;]*function\s+(?:public\.)?decrypt_user_api_key\b[^;]*\bto\b[^;]*\b(?:public|anon|authenticated)\b/i;
+    const later = readdirSync(join(process.cwd(), 'supabase/migrations'))
+      .filter((f) => f.endsWith('.sql') && f > KEYS_FIX);
+    for (const file of later) {
+      expect(readRepoFile(`supabase/migrations/${file}`), `${file} reopens decrypt_user_api_key`).not.toMatch(grant);
     }
   });
 });
