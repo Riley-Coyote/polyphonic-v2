@@ -1,0 +1,1 @@
+REVOKE INSERT, UPDATE, DELETE ON TABLE public.connector_calls FROM authenticated;
