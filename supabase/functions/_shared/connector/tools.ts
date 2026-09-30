@@ -73,6 +73,7 @@ export type RefusalCode =
   | "unknown_companion"
   | "choose_companion"
   | "not_granted"
+  | "app_not_supported"
   | "rate_limited"
   | "daily_limit"
   | "unavailable"
@@ -86,6 +87,8 @@ export const REFUSAL_TEXT: Record<RefusalCode, string> = {
     "More than one companion is shared with this app. Pass agent with one of the ids from whoami.",
   not_granted:
     "This app hasn't been given any companions yet. Ask the person to reconnect Polyphonic here and choose who it may talk with.",
+  app_not_supported:
+    "Polyphonic connects with Claude, ChatGPT, Claude Code and Codex. This app isn't one of them yet, so no companion is shared with it.",
   rate_limited: "Too many requests in a short time. Wait a few minutes and try again.",
   daily_limit: "The daily limit for this kind of save is reached. It resets within 24 hours.",
   unavailable: "Polyphonic couldn't be reached just now. Nothing was changed. Try again shortly.",
@@ -290,7 +293,7 @@ interface Context {
   now: number;
   /** The companion a tool resolved, for the audit row. */
   agentId: string | null;
-  granted(): Promise<{ companions: Companion[]; appName: string; hasGrant: boolean }>;
+  granted(): Promise<{ companions: Companion[]; appName: string; hasGrant: boolean; unsupported: boolean }>;
 }
 
 function makeContext(deps: ToolDeps, caller: Caller): Context {
@@ -335,24 +338,45 @@ export async function listCompanions(admin: SupabaseLike, userId: string): Promi
   return [luca, ...others];
 }
 
+/**
+ * Where a grant's sign-in returned, as /oauth/consent records it (src/lib/connector.ts
+ * describeRedirect): Claude and ChatGPT by site, Claude Code and Codex as "this
+ * computer". The consent page refuses every other app; this re-checks each call, so a
+ * grant from anywhere else reaches no companion. Keep in step with KNOWN_APP_SITES there.
+ */
+export const KNOWN_APP_HOSTS: readonly string[] = [
+  "claude.ai",
+  "claude.com",
+  "chatgpt.com",
+  "chat.openai.com",
+  "this computer",
+];
+
+export function isKnownAppHost(host: unknown): boolean {
+  return typeof host === "string" && KNOWN_APP_HOSTS.includes(host);
+}
+
 async function loadGranted(admin: SupabaseLike, caller: Caller) {
   const [all, grantRes] = await Promise.all([
     listCompanions(admin, caller.userId),
     admin
       .from("connector_grants")
-      .select("agent_ids, client_name")
+      .select("agent_ids, client_name, redirect_host")
       .eq("user_id", caller.userId)
       .eq("client_id", caller.clientId)
       .maybeSingle(),
   ]);
   if (grantRes.error) throw new Refusal("unavailable");
-  const row = grantRes.data as { agent_ids?: unknown; client_name?: unknown } | null;
+  const row = grantRes.data as { agent_ids?: unknown; client_name?: unknown; redirect_host?: unknown } | null;
   const appName = row && typeof row.client_name === "string" && row.client_name.trim()
     ? row.client_name.trim().slice(0, 80)
     : "another app";
-  if (!row) return { companions: [] as Companion[], appName, hasGrant: false };
+  if (!row) return { companions: [] as Companion[], appName, hasGrant: false, unsupported: false };
+  if (!isKnownAppHost(row.redirect_host)) {
+    return { companions: [] as Companion[], appName, hasGrant: false, unsupported: true };
+  }
   const allowed = new Set(Array.isArray(row.agent_ids) ? row.agent_ids.filter((v) => typeof v === "string") : []);
-  return { companions: all.filter((c) => allowed.has(c.id)), appName, hasGrant: true };
+  return { companions: all.filter((c) => allowed.has(c.id)), appName, hasGrant: true, unsupported: false };
 }
 
 /**
@@ -361,8 +385,8 @@ async function loadGranted(admin: SupabaseLike, caller: Caller) {
  * so nothing lands in the wrong memory.
  */
 async function resolveCompanion(ctx: Context, arg: unknown, forWrite: boolean): Promise<Companion> {
-  const { companions } = await ctx.granted();
-  if (companions.length === 0) throw new Refusal("not_granted");
+  const { companions, unsupported } = await ctx.granted();
+  if (companions.length === 0) throw new Refusal(unsupported ? "app_not_supported" : "not_granted");
   let hit: Companion | undefined;
   if (arg === undefined || arg === null || arg === "") {
     if (companions.length === 1) hit = companions[0];
@@ -447,13 +471,13 @@ type Impl = (ctx: Context, args: Record<string, unknown>) => Promise<Record<stri
 
 const IMPL: Record<ToolName, Impl> = {
   async whoami(ctx) {
-    const [{ companions, appName, hasGrant }, name] = await Promise.all([ctx.granted(), personName(ctx)]);
+    const [{ companions, appName, hasGrant, unsupported }, name] = await Promise.all([ctx.granted(), personName(ctx)]);
     return {
       ok: true,
       person: { name },
       app: appName,
       companions: companions.map((c) => ({ id: c.id, name: c.name, kind: c.kind })),
-      ...(hasGrant ? {} : { note: REFUSAL_TEXT.not_granted }),
+      ...(hasGrant ? {} : { note: REFUSAL_TEXT[unsupported ? "app_not_supported" : "not_granted"] }),
       manage_at: `${ctx.deps.siteUrl}/settings/connected-apps`,
     };
   },

@@ -8,6 +8,7 @@ import LandingParticleField from '@/components/LandingParticleField';
 import { AuthCard, AuthCardEyebrow, AuthCardSubtitle, AuthCardTitle } from '@/components/auth/AuthCard';
 import {
   describeRedirect,
+  isKnownApp,
   loadCompanions,
   namesList,
   saveGrant,
@@ -30,12 +31,23 @@ export interface ConsentAsk {
   companions: ConnectorCompanion[];
 }
 
+/** Names of the apps Polyphonic connects with; a request using one from elsewhere is told so plainly. */
+const KNOWN_APP_NAME = /\b(claude|chatgpt|codex)\b/i;
+
+/** An app Polyphonic doesn't connect with. authorizationId is set when the request can still be declined. */
+export interface ConsentUnsupported {
+  authorizationId: string | null;
+  appName: string;
+  redirect: { host: string | null; label: string };
+}
+
 export type ConsentState =
   | { kind: 'loading' }
   | { kind: 'missing' }
   | { kind: 'expired' }
   | { kind: 'guest' }
   | { kind: 'returning'; appName: string | null }
+  | { kind: 'unsupported'; details: ConsentUnsupported }
   | { kind: 'ask'; details: ConsentAsk };
 
 export default function OAuthConsentPage() {
@@ -70,9 +82,28 @@ export default function OAuthConsentPage() {
       }
       const data = detailsRes.value.data;
       if (!('authorization_id' in data)) {
-        // Already allowed earlier: the auth server sends the app straight back.
+        // Already allowed earlier: the auth server sends the app straight back,
+        // but only to an app Polyphonic connects with.
+        if (!isKnownApp(data.redirect_url)) {
+          setState({
+            kind: 'unsupported',
+            details: { authorizationId: null, appName: 'This app', redirect: describeRedirect(data.redirect_url) },
+          });
+          return;
+        }
         setState({ kind: 'returning', appName: null });
         window.location.assign(data.redirect_url);
+        return;
+      }
+      if (!isKnownApp(data.redirect_uri)) {
+        setState({
+          kind: 'unsupported',
+          details: {
+            authorizationId: data.authorization_id,
+            appName: data.client.name?.trim() || 'This app',
+            redirect: describeRedirect(data.redirect_uri),
+          },
+        });
         return;
       }
       if (companionsRes.status !== 'fulfilled') {
@@ -139,11 +170,13 @@ export default function OAuthConsentPage() {
   };
 
   const deny = async () => {
-    if (state.kind !== 'ask' || busy) return;
+    if ((state.kind !== 'ask' && state.kind !== 'unsupported') || busy) return;
+    const { authorizationId } = state.details;
+    if (!authorizationId) return;
     setBusy('deny');
     setError('');
     const { data, error: denyError } = await supabase.auth.oauth.denyAuthorization(
-      state.details.authorizationId,
+      authorizationId,
       { skipBrowserRedirect: true },
     );
     if (denyError || !data?.redirect_url) {
@@ -249,6 +282,43 @@ export function ConsentView({
                     Sign in
                   </Link>
                 </div>
+              </>
+            )}
+
+            {state.kind === 'unsupported' && (
+              <>
+                <AuthCardEyebrow>Connect an app</AuthCardEyebrow>
+                {KNOWN_APP_NAME.test(state.details.appName) ? (
+                  <>
+                    <AuthCardTitle>{state.details.appName} can't connect from this address.</AuthCardTitle>
+                    <AuthCardSubtitle>
+                      This request says it's {state.details.appName}, but it came from {state.details.redirect.label},
+                      not from {state.details.appName} itself. Nothing was shared.
+                    </AuthCardSubtitle>
+                  </>
+                ) : (
+                  <>
+                    <AuthCardTitle>{state.details.appName} can't connect to Polyphonic yet.</AuthCardTitle>
+                    <AuthCardSubtitle>
+                      Polyphonic connects with Claude, ChatGPT, Claude Code and Codex. This request came from{' '}
+                      {state.details.redirect.label}, so nothing was shared.
+                    </AuthCardSubtitle>
+                  </>
+                )}
+
+                {error && <p className="consent-error" role="alert">{error}</p>}
+
+                <div className="consent-actions">
+                  {state.details.authorizationId ? (
+                    <button type="button" className="consent-deny" onClick={onDeny} disabled={busy !== null}>
+                      {busy === 'deny' ? 'Declining…' : 'Decline'}
+                    </button>
+                  ) : (
+                    <p className="consent-quiet">You can close this page.</p>
+                  )}
+                </div>
+
+                <p className="consent-meta">Signed in as {email ?? 'you'}.</p>
               </>
             )}
 

@@ -115,6 +115,27 @@ export async function loadLastUsed(): Promise<Map<string, string>> {
 
 const LOOPBACK = new Set(['localhost', '127.0.0.1', '[::1]', '::1']);
 
+/**
+ * The apps Polyphonic connects with, by where their sign-in returns: Claude and
+ * ChatGPT return to their own sites, Claude Code and Codex to this computer.
+ * /oauth/consent refuses every other return address, so no other app ever gets a
+ * token. Keep in step with KNOWN_APP_HOSTS in
+ * supabase/functions/_shared/connector/tools.ts, which re-checks every call.
+ */
+export const KNOWN_APP_SITES = ['claude.ai', 'claude.com', 'chatgpt.com', 'chat.openai.com'] as const;
+
+/** True when a sign-in would return to Claude, ChatGPT, or an app on this computer. */
+export function isKnownApp(uri: string | null | undefined): boolean {
+  if (!uri) return false;
+  try {
+    const url = new URL(uri);
+    if (LOOPBACK.has(url.hostname)) return url.protocol === 'http:' || url.protocol === 'https:';
+    return url.protocol === 'https:' && (KNOWN_APP_SITES as readonly string[]).includes(url.hostname);
+  } catch {
+    return false;
+  }
+}
+
 /** Where a sign-in goes back to, in words a person can check. */
 export function describeRedirect(uri: string | null | undefined): { host: string | null; label: string } {
   if (!uri) return { host: null, label: 'an unknown address' };

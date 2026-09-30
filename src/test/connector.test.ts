@@ -149,8 +149,8 @@ function seed(): Record<string, Row[]> {
       { user_id: BOB, id: 'ziggy', name: 'Bob Ziggy', pending: false, prompt: `bob's ziggy ${LEAK}` },
     ],
     connector_grants: [
-      { user_id: ALICE, client_id: CLAUDE_APP, client_name: 'Claude', agent_ids: ['luca'] },
-      { user_id: BOB, client_id: CLAUDE_APP, client_name: 'Claude', agent_ids: ['luca', 'bobbot', 'ziggy'] },
+      { user_id: ALICE, client_id: CLAUDE_APP, client_name: 'Claude', redirect_host: 'claude.ai', agent_ids: ['luca'] },
+      { user_id: BOB, client_id: CLAUDE_APP, client_name: 'Claude', redirect_host: 'claude.ai', agent_ids: ['luca', 'bobbot', 'ziggy'] },
     ],
     agent_identity: [
       { user_id: ALICE, agent_id: 'luca', doc_type: 'user_model', content: 'Alice paints at night.' },
@@ -720,5 +720,36 @@ describe('polyphonic-connect: limits', () => {
     const fixed = JSON.stringify(TOOLS) + JSON.stringify(REFUSAL_TEXT);
     expect(fixed).not.toMatch(/\$\{/);
     for (const tool of TOOLS) expect(tool.inputSchema.additionalProperties).toBe(false);
+  });
+});
+
+describe('polyphonic-connect: only the apps Polyphonic connects with reach a companion', () => {
+  it('refuses an app whose sign-in returned anywhere else, before any memory is read', async () => {
+    const h = harness();
+    h.db.tables.connector_grants[0].redirect_host = 'evil.example';
+    const opened = await call(h, 'open_companion', {});
+    expect(opened.data.code).toBe('app_not_supported');
+    const saved = await call(h, 'remember', { content: 'Something.' });
+    expect(saved.data.code).toBe('app_not_supported');
+    const who = await call(h, 'whoami');
+    expect(who.data.companions).toEqual([]);
+    expect(who.data.note).toBe(REFUSAL_TEXT.app_not_supported);
+    expect(h.loaderCalls).toEqual([]);
+    expect(h.encoded).toEqual([]);
+  });
+
+  it('refuses a grant with no recorded return address', async () => {
+    const h = harness();
+    h.db.tables.connector_grants[0].redirect_host = null;
+    const { data } = await call(h, 'open_companion', {});
+    expect(data.code).toBe('app_not_supported');
+  });
+
+  it('accepts Claude Code and Codex, which return to this computer', async () => {
+    const h = harness();
+    h.db.tables.connector_grants[0].redirect_host = 'this computer';
+    const { data } = await call(h, 'open_companion', {});
+    expect(data.ok).toBe(true);
+    expect(data.companion).toEqual({ id: 'luca', name: 'Luca', kind: 'luca' });
   });
 });

@@ -14,8 +14,9 @@ import { ConnectedAppsView, type ConnectedApp } from '@/pages/settings/Connected
  * Registered in App.tsx inside `if (import.meta.env.DEV)`, so it is absent
  * from a production build. Every string below is fixture text.
  *
- *   ?view=consent&state=ask|loading|missing|expired|guest|returning
+ *   ?view=consent&state=ask|loading|missing|expired|guest|returning|unsupported
  *                 &companions=1..4&app=Claude&from=claude.ai|local|scheme
+ *     (unsupported defaults to from=scheme; &answered=1 shows an already-allowed app)
  *   ?view=apps&apps=0..3&error=1&confirm=1
  */
 
@@ -82,6 +83,16 @@ function ConsentFixture({ params }: { params: URLSearchParams }) {
     if (kind === 'expired') return { kind: 'expired' };
     if (kind === 'guest') return { kind: 'guest' };
     if (kind === 'returning') return { kind: 'returning', appName: app };
+    if (kind === 'unsupported') {
+      return {
+        kind: 'unsupported',
+        details: {
+          authorizationId: params.get('answered') === '1' ? null : 'fixture',
+          appName: app,
+          redirect: redirectFor(params.get('from') ?? 'scheme'),
+        },
+      };
+    }
     return {
       kind: 'ask',
       details: {
