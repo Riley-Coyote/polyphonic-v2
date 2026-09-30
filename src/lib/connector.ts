@@ -7,10 +7,14 @@ import { supabase } from '@/integrations/supabase/client';
  * apps and /connect.
  */
 
-/** O4: the raw function address for private testing; VITE_CONNECTOR_URL once a clean one exists. */
+/**
+ * The connector's permanent address. Apps save it when someone connects, so it
+ * never changes: connect.polyphonic.chat forwards to the edge function wherever
+ * it lives (polyphonic-app packages/connect-forwarder, on Deno Deploy).
+ * VITE_CONNECTOR_URL overrides it for local testing.
+ */
 export const CONNECTOR_URL = (
-  (import.meta.env.VITE_CONNECTOR_URL as string | undefined)
-  || `${String(import.meta.env.VITE_SUPABASE_URL ?? '')}/functions/v1/polyphonic-connect`
+  (import.meta.env.VITE_CONNECTOR_URL as string | undefined) || 'https://connect.polyphonic.chat'
 ).replace(/\/+$/, '');
 
 export interface ConnectorCompanion {

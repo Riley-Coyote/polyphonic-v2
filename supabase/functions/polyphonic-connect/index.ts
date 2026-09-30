@@ -12,14 +12,15 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { audienceOf, decodeJwtPayload, type VerifiedToken } from "../_shared/connector/auth.ts";
 import { CORS_HEADERS as corsHeaders, preflight } from "../_shared/connector/protocol.ts";
-import { FUNCTION_SLUG, handleConnector, type ConnectorDeps } from "../_shared/connector/server.ts";
+import { handleConnector, type ConnectorDeps } from "../_shared/connector/server.ts";
 
 const SUPABASE_URL = (Deno.env.get("SUPABASE_URL") ?? "").replace(/\/+$/, "");
 const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 const ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY") ?? "";
-// O4: the raw function address for private testing; a clean address later.
-const RESOURCE_URL = (Deno.env.get("CONNECTOR_PUBLIC_URL") ?? `${SUPABASE_URL}/functions/v1/${FUNCTION_SLUG}`)
-  .replace(/\/+$/, "");
+// The permanent public address apps connect to: connect.polyphonic.chat forwards to
+// this function (polyphonic-app packages/connect-forwarder). Apps check that the
+// metadata names the address they used, so this must match it.
+const RESOURCE_URL = (Deno.env.get("CONNECTOR_PUBLIC_URL") ?? "https://connect.polyphonic.chat").replace(/\/+$/, "");
 const SITE_URL = (Deno.env.get("POLYPHONIC_SITE_URL") ?? "https://polyphonic.chat").replace(/\/+$/, "");
 
 const clientOptions = { auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false } };
