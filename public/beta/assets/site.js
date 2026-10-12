@@ -259,7 +259,7 @@ if (!reduced.matches && 'IntersectionObserver' in window) {
   if (!form) return;
   const config = window.POLYPHONIC_CONFIG || {};
   let busy = false;
-  if (config.signupEndpoint) note.textContent = 'macOS · one email with the app, nothing else.';
+  if (config.signupEndpoint) note.textContent = 'macOS · We’ll email you when new spots open.';
   if (config.privacyUrl) {
     const a = document.createElement('a');
     a.textContent = 'Privacy';
@@ -269,7 +269,7 @@ if (!reduced.matches && 'IntersectionObserver' in window) {
   }
   email.addEventListener('input', () => {
     email.removeAttribute('aria-invalid');
-    if (!busy) { submit.disabled = false; submit.textContent = 'Request the beta'; }
+    if (!busy) { submit.disabled = false; submit.textContent = 'Join the waitlist'; }
   });
   form.addEventListener('submit', async e => {
     e.preventDefault();
@@ -280,8 +280,8 @@ if (!reduced.matches && 'IntersectionObserver' in window) {
       email.focus();
       return;
     }
-    if (!config.signupEndpoint) { note.textContent = 'Beta requests aren’t open yet. Your email has not been sent or saved.'; return; }
-    busy = true; submit.disabled = true; submit.textContent = 'Requesting…';
+    if (!config.signupEndpoint) { note.textContent = 'The waitlist is temporarily unavailable. Your email has not been sent or saved.'; return; }
+    busy = true; submit.disabled = true; submit.textContent = 'Joining…';
     form.setAttribute('aria-busy', 'true');
     note.textContent = 'Sending your request…';
     const controller = new AbortController();
@@ -296,14 +296,14 @@ if (!reduced.matches && 'IntersectionObserver' in window) {
       if (!response.ok) throw new Error('Signup failed: ' + response.status);
       const result = await response.json().catch(() => ({}));
       note.textContent = result.status === 'already_subscribed'
-        ? 'You’re already on the list. We’ll email your download link when a build is ready.'
+        ? 'You’re already on our list. No need to sign up again.'
         : result.status === 'confirmation_required'
           ? 'Check your inbox to confirm your email address.'
-          : 'You’re on the list. We’ll email your download link when a build is ready.';
-      submit.textContent = 'Requested'; email.value = ''; submit.disabled = true;
+          : 'You’re on the waitlist. We’ll email you when new spots open.';
+      submit.textContent = 'Joined'; email.value = ''; submit.disabled = true;
     } catch {
       note.textContent = 'Your request couldn’t be confirmed. Please try again.';
-      submit.textContent = 'Request the beta';
+      submit.textContent = 'Join the waitlist';
       submit.disabled = false;
     } finally {
       clearTimeout(timeout);
