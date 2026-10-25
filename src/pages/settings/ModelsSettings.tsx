@@ -153,7 +153,7 @@ export default function ModelsSettings() {
           number="01"
           name="Authorization"
           title="API key"
-          desc="Your OpenRouter API key. Encrypted and stored securely. Single key authorizes all reasoning models."
+          desc="Your OpenRouter API key. Encrypted and stored securely. Funds chats and ensembles that use OpenRouter."
         >
           {keyPreview ? (
             <KeyStored

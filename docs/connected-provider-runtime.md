@@ -67,4 +67,15 @@ The isolated UI lab is `lab/provider-connections/`, served by the local Vite pre
 
 After deployment, use the actual web/native settings to enter credentials. Test a new conversation for each provider, reload its history, interrupt a turn and recover it, disconnect and confirm that new requests stop, then use mobile with the desktop bridge unavailable. Record real replies separately from fixture success. ChatGPT live acceptance additionally waits for provider approval and user consent; Anthropic acceptance needs a valid API key/workspace and available credits.
 
+### Recorded local verification, 2026-10-24
+
+- Provider runtime: **96 Deno fixtures pass**, with no network permission. New Edge Function typechecks, Deno lint and formatting checks pass.
+- Migration: **16 schema regression tests pass** in pinned PGlite, including original ownerless-thread behavior, account deletion, OAuth ownership, credential refresh/disconnect races and recovery of persisted replies. True cross-session PostgreSQL lock scheduling remains a deployment check.
+- Web: TypeScript and production build pass. The full suite reports **728 passed / 4 failed**; the same four failures were reproduced on untouched main `39e36b5` (account portability source assertion, email-webhook CORS source gate, OpenRouter workspace-file source gate and implicit export-worker authentication markers). New provider tests pass.
+- Production web components were exercised in an isolated, fully intercepted browser: account setup, model selection, new bound conversation, canonical response, interrupted reply recovery, key/model/list failures and disconnect. Three chat HTTP requests represented two unique claimed user messages, with zero legacy chat/Observer calls. Desktop width/scroll width were 1440/1440; mobile 388/388; provider controls measured 44px high. No page errors or warnings occurred. Deliberately rejected fixture requests produced expected resource errors.
+- The isolated lab's actual preset sizing, key masking, simulated setup, save/restore after reload, copy/fallback and JSON export were exercised. Its fixtures are absent from the production web bundle.
+- The Ghost runtime's 232 existing XCTest unit tests and 12 new provider fixtures pass on a signed isolated iPhone simulator. Native UI and release evidence are recorded with the separate Ghost runtime change.
+
+These checks establish local implementation behavior. No live provider reply, production deployment or hosted ChatGPT approval is claimed. The OpenAI access request is a draft. The web branch is `codex/cloud-provider-connections`; the native runtime branch is `codex/ghost-mobile-completion` in `prompt-ghost`, separate from Claude's navigation branch.
+
 Official contracts: [hosted ChatGPT sign-in](https://developers.openai.com/siwc/website), [hosted client access](https://developers.openai.com/siwc/request-client-id), [plan inference](https://developers.openai.com/siwc/token-sharing-open-source/models-and-inference), [Anthropic authentication](https://platform.claude.com/docs/en/manage-claude/authentication).
