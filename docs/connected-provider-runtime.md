@@ -93,4 +93,12 @@ These checks establish local implementation behavior; a successful real provider
 - The signed Ghost Release build compiled from native runtime commit `cb5fdc8f`, passed full signing verification, contains no provider fixture markers, and was installed and opened on the connected test iPhone. The signed-in iPhone simulator was updated as well. Neither install resets application data or Keychain storage.
 - Real provider inference and desktop-disconnected response/history acceptance are pending the user's private API-key setup in the live app. No real key was collected in chat. The direct credential-get diagnostic was not performed; a credential-free lock probe was inconclusive through this connector, so full cross-session stress remains unverified.
 
+### Live Claude acceptance — October 25, 2026
+
+The user privately connected a personal Console API key after the `sk-ant-usr` validation correction in web source `6f308f1`. Live model discovery succeeded. A new Luca conversation bound to that account and `claude-haiku-4-5-20251001` returned the requested real response, `cloud test OK`.
+
+The saved conversation is [Cloud connection check](https://polyphonic.chat/chat/f212c496-7a2e-4123-9cb3-21c116004b7f). Its reply survived a full page reload. Cloud metadata independently confirms two saved messages and one finished provider turn, with a persisted reserved assistant ID; reopening did not create a second generation. No app console errors were observed; the installed browser extension separately reported an invalidated extension context. No key, token, credential ciphertext or request authorization header was inspected.
+
+This verifies hosted Claude inference and durable web history through `provider-chat`. The physical iPhone send/receive check, including cellular use when available, is awaiting the user's result. Hosted ChatGPT remains gated pending registration and plan-inference access.
+
 Official contracts: [hosted ChatGPT sign-in](https://developers.openai.com/siwc/website), [hosted client access](https://developers.openai.com/siwc/request-client-id), [plan inference](https://developers.openai.com/siwc/token-sharing-open-source/models-and-inference), [Anthropic authentication](https://platform.claude.com/docs/en/manage-claude/authentication).
