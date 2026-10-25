@@ -34,9 +34,9 @@ async function loadPGlite() {
 
 const { PGlite } = await loadPGlite();
 
-// Keep the relevant legacy constraints/RLS accurate: threads.user_id and messages.user_id
-// deliberately have no auth.users FK in the existing canonical schema. Inventing that cascade
-// here would hide a provider-bound thread preventing account deletion.
+// Model the canonical profile key and its existing auth-account deletion cascade.
+// Deliberately retain the older-installation case where threads.user_id and messages.user_id
+// have no owner FK: provider cleanup must work without relying on those additional cascades.
 const baseline = `
   create role anon nologin;
   create role authenticated nologin;
@@ -52,6 +52,14 @@ const baseline = `
   grant usage on schema auth, public to anon, authenticated, service_role;
   grant execute on function auth.uid(), auth.role() to anon, authenticated, service_role;
   alter default privileges in schema public grant all on tables to anon, authenticated, service_role;
+  create table public.profiles (
+    id uuid primary key default gen_random_uuid(),
+    user_id uuid not null unique references auth.users(id) on delete cascade
+  );
+  alter table public.profiles enable row level security;
+  create policy profile_self_read on public.profiles for select using (auth.uid() = user_id);
+  create policy profile_self_insert on public.profiles for insert with check (auth.uid() = user_id);
+  create policy profile_self_update on public.profiles for update using (auth.uid() = user_id);
   create table public.threads (
     id uuid primary key default gen_random_uuid(),
     user_id uuid not null,
@@ -85,9 +93,11 @@ test('connected-provider schema regression', async (t) => {
   await db.exec(baseline);
   await db.exec(readFileSync(migrationPath, 'utf8'));
 
-  const users = [randomUUID(), randomUUID(), randomUUID()];
+  const users = [randomUUID(), randomUUID(), randomUUID(), randomUUID(), randomUUID()];
   await db.query('insert into auth.users(id) select unnest($1::uuid[])', [users]);
-  const [alice, bob, deleting] = users;
+  const [alice, bob, deleting, profileDeleting, missingProfile] = users;
+  // Signup normally creates this row; seed explicitly so one fixture can model a missing profile.
+  await db.query('insert into public.profiles(user_id) select unnest($1::uuid[])', [users.slice(0, -1)]);
 
   async function asRole(role, user, callback, claimRole = role) {
     assert.ok(['anon', 'authenticated', 'service_role'].includes(role));
@@ -206,6 +216,24 @@ test('connected-provider schema regression', async (t) => {
     const unchanged = await service((tx) => secret(tx, 'get', { id: row.connection.id }));
     assert.equal(unchanged.version, row.version);
     assert.equal(unchanged.encrypted_secret, row.encrypted_secret);
+  });
+
+  await t.test('provider owners require the canonical profile user ID and an existing profile', async () => {
+    const profile = (await db.query('select id, user_id from public.profiles where user_id = $1', [alice])).rows[0];
+    assert.notEqual(profile.id, alice, 'a profile primary key is distinct from its authenticated user ID');
+    const row = await connection(alice);
+    assert.equal(row.connection.user_id, alice);
+    for (const user of [missingProfile, profile.id]) {
+      const id = randomUUID();
+      await assert.rejects(service((tx) => secret(tx, 'save', {
+        user, id, version: 0, metadata: metadata(), ciphertext: 'unowned-secret',
+      })), /provider_connections_user_id_fkey/);
+      assert.equal((await db.query('select count(*)::int as total from public.provider_connections where id = $1', [id])).rows[0].total, 0);
+      assert.equal((await db.query('select count(*)::int as total from private.provider_credentials where connection_id = $1', [id])).rows[0].total, 0);
+    }
+    assert.equal((await db.query('select count(*)::int as total from auth.users where id = $1', [missingProfile])).rows[0].total, 1,
+      'an auth record without its canonical profile must not create a provider connection');
+    await assert.rejects(oauthFixture(missingProfile), /provider_oauth_transactions_user_id_fkey/);
   });
 
   await t.test('queued first-create contenders yield one CAS winner and preserve serialization guards', async () => {
@@ -452,6 +480,54 @@ test('connected-provider schema regression', async (t) => {
     assert.equal((await db.query('select count(*)::int as total from private.provider_turns where user_message_id = $1', [options.userMessage])).rows[0].total, 1);
   });
 
+  await t.test('profile deletion clears only its connected data before credentials cascade', async () => {
+    const account = await connection(profileDeleting);
+    const profile = (await db.query('select id from public.profiles where user_id = $1', [profileDeleting])).rows[0];
+    assert.notEqual(profile.id, profileDeleting);
+    const threadId = await thread(profileDeleting, account.connection.id);
+    const userMessage = await message(profileDeleting, threadId);
+    const assistant = randomUUID();
+    const legacy = await thread(profileDeleting);
+    const pending = await oauthFixture(profileDeleting);
+    const options = { user: profileDeleting, userMessage, threadId, connectionId: account.connection.id, assistant };
+    await service((tx) => turn(tx, 'claim', options));
+    await message(profileDeleting, threadId, 'assistant', assistant);
+    await service((tx) => turn(tx, 'finish', options));
+    const other = await connection(bob);
+
+    const removed = await asRole('authenticated', profileDeleting, (tx) => tx.query(
+      'delete from public.profiles where user_id = $1 returning id', [profileDeleting],
+    ));
+    assert.equal(removed.rows.length, 0, 'the provider migration must not grant users profile deletion');
+    assert.equal((await service((tx) => secret(tx, 'get', { user: profileDeleting, id: account.connection.id }))).encrypted_secret,
+      'fixture-encrypted-credential');
+
+    await db.query('delete from public.profiles where id = $1', [profile.id]);
+    assert.equal((await db.query('select count(*)::int as total from auth.users where id = $1', [profileDeleting])).rows[0].total, 1,
+      'direct profile cleanup must work while the auth account still exists');
+    for (const [sql, params] of [
+      ['select count(*)::int as total from public.provider_connections where user_id = $1', [profileDeleting]],
+      ['select count(*)::int as total from private.provider_credentials where connection_id = $1', [account.connection.id]],
+      ['select count(*)::int as total from private.provider_oauth_transactions where state_hash = $1', [pending.state]],
+      ['select count(*)::int as total from private.provider_turns where user_id = $1', [profileDeleting]],
+      ['select count(*)::int as total from public.threads where id = $1', [threadId]],
+      ['select count(*)::int as total from public.messages where thread_id = $1', [threadId]],
+    ]) {
+      assert.equal((await db.query(sql, params)).rows[0].total, 0, sql);
+    }
+    assert.equal((await db.query('select count(*)::int as total from public.threads where id = $1', [legacy])).rows[0].total, 1,
+      'profile cleanup leaves unconnected conversations alone');
+    assert.equal((await service((tx) => secret(tx, 'get', { user: bob, id: other.connection.id }))).encrypted_secret,
+      'fixture-encrypted-credential');
+    await assert.rejects(connection(profileDeleting), /provider_connections_user_id_fkey/);
+    await assert.rejects(service((tx) => secret(tx, 'save', {
+      user: profileDeleting, id: account.connection.id, version: account.version,
+      metadata: metadata(), ciphertext: 'late-secret',
+    })), /Connection changed/);
+    assert.equal(await service((tx) => oauth(tx, 'finish', { user: profileDeleting, ticket: pending.ticket })), null);
+    await denied(service((tx) => turn(tx, 'claim', options)));
+  });
+
   await t.test('account deletion removes connected conversations, secrets, OAuth state, and turn claims', async () => {
     const account = await connection(deleting);
     const threadId = await thread(deleting, account.connection.id);
@@ -465,6 +541,7 @@ test('connected-provider schema regression', async (t) => {
     const other = await connection(bob);
     await db.query('delete from auth.users where id = $1', [deleting]);
     for (const [sql, params] of [
+      ['select count(*)::int as total from public.profiles where user_id = $1', [deleting]],
       ['select count(*)::int as total from public.provider_connections where user_id = $1', [deleting]],
       ['select count(*)::int as total from private.provider_credentials where connection_id = $1', [account.connection.id]],
       ['select count(*)::int as total from private.provider_oauth_transactions where state_hash = $1', [pending.state]],

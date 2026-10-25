@@ -19,9 +19,11 @@ Launch direction, 2026-10-24: publish the direct Anthropic API path first so use
 
 The additive migration stores metadata in an owner-readable table and ciphertext in a private service-only table. AES-256-GCM authenticates each secret's owner, connection and purpose. A deployment secret supplies the encryption key. Durable 45-second refresh leases and version checks coordinate rotating OAuth refresh tokens across function instances. Disconnect purges locally before bounded remote revocation. Legacy chat routes reject bound conversations before making a model request.
 
+Owner references use the existing `public.profiles(user_id)` unique key. Its existing managed-account cascade retains account deletion behavior without adding a trigger or foreign key directly against the managed authentication table. A `BEFORE DELETE` profile trigger removes bound conversations before credentials cascade, including on older installations without a thread-owner foreign key. The SQL harness keeps profile IDs distinct from account IDs and verifies both profile deletion and account deletion.
+
 ## Deployment configuration
 
-Prepare and deploy the complete change together. This work has not changed production schema, secrets, function deployments or the published website.
+Prepare and deploy the complete change together. Record the applied migration, deployed functions and published URL separately from local verification.
 
 1. Deploy the updated legacy `chat` and `chat-multi` guards. Their `SELECT *` is compatible with the existing schema.
 2. Apply `supabase/migrations/20261024200000_connected_model_providers.sql` to the project's cloud PostgreSQL database. Regenerate database types after applying if needed; application code uses an explicit provider DTO boundary.
@@ -72,12 +74,13 @@ After deployment, use the actual web/native settings to enter credentials. Test 
 ### Recorded local verification, 2026-10-24
 
 - Provider runtime: **96 Deno fixtures pass**, with no network permission. New Edge Function typechecks, Deno lint and formatting checks pass.
-- Migration: **16 schema regression tests pass** in pinned PGlite, including original ownerless-thread behavior, account deletion, OAuth ownership, credential refresh/disconnect races and recovery of persisted replies. True cross-session PostgreSQL lock scheduling remains a deployment check.
+- Migration: **18 schema regression tests pass** in pinned PGlite, including distinct profile/account IDs, missing-profile rejection, profile and account deletion cascades, older ownerless-thread behavior, OAuth ownership, credential refresh/disconnect races and recovery of persisted replies. True cross-session PostgreSQL lock scheduling remains a deployment check.
 - Web: TypeScript and production build pass. The full suite reports **728 passed / 4 failed**; the same four failures were reproduced on untouched main `39e36b5` (account portability source assertion, email-webhook CORS source gate, OpenRouter workspace-file source gate and implicit export-worker authentication markers). New provider tests pass.
 - Production web components were exercised in an isolated, fully intercepted browser: account setup, model selection, new bound conversation, canonical response, interrupted reply recovery, key/model/list failures and disconnect. Three chat HTTP requests represented two unique claimed user messages, with zero legacy chat/Observer calls. Desktop width/scroll width were 1440/1440; mobile 388/388; provider controls measured 44px high. No page errors or warnings occurred. Deliberately rejected fixture requests produced expected resource errors.
 - The isolated lab's actual preset sizing, key masking, simulated setup, save/restore after reload, copy/fallback and JSON export were exercised. Its fixtures are absent from the production web bundle.
 - The Ghost runtime's 232 existing XCTest unit tests and 12 new provider fixtures pass on a signed isolated iPhone simulator. Native UI and release evidence are recorded with the separate Ghost runtime change.
+- After preserving the newer upstream preview-auth storage and generated type changes in `ea8622e`, TypeScript, production build and 26 focused provider/chat/onboarding tests pass. The actual provider panel was inspected again with no console errors. The credential encryption secret was provisioned through the cloud secret manager using its native 43-character generator; the value was never returned to chat or source. The existing decoder accepts this unpadded base64 form as a 32-byte AES-GCM key.
 
-These checks establish local implementation behavior. No live provider reply, production deployment or hosted ChatGPT approval is claimed. The OpenAI access request is a draft. The web branch is `codex/cloud-provider-connections`; the native runtime branch is `codex/ghost-mobile-completion` in `prompt-ghost`, separate from Claude's navigation branch.
+These checks establish local implementation behavior; a successful real provider reply remains a separate acceptance step. The hosted ChatGPT access request has no confirmed submission or approval. The web branch is `codex/cloud-provider-connections`; the native runtime branch is `codex/ghost-mobile-completion` in `prompt-ghost`, separate from Claude's navigation branch.
 
 Official contracts: [hosted ChatGPT sign-in](https://developers.openai.com/siwc/website), [hosted client access](https://developers.openai.com/siwc/request-client-id), [plan inference](https://developers.openai.com/siwc/token-sharing-open-source/models-and-inference), [Anthropic authentication](https://platform.claude.com/docs/en/manage-claude/authentication).

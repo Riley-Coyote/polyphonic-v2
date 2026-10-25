@@ -5,7 +5,7 @@ grant usage on schema private to service_role;
 
 create table public.provider_connections (
   id uuid primary key default gen_random_uuid(),
-  user_id uuid not null references auth.users(id) on delete cascade,
+  user_id uuid not null references public.profiles(user_id) on delete cascade,
   provider text not null check (provider in ('anthropic','chatgpt')),
   label text not null check (length(label) between 1 and 120),
   subject text,
@@ -41,15 +41,16 @@ alter table public.threads add constraint thread_provider_same_owner
   deferrable initially deferred;
 create index threads_provider_connection on public.threads(provider_connection_id) where provider_connection_id is not null;
 
--- Legacy threads have no auth.users owner FK. Remove connected threads before credentials cascade away.
+-- Some legacy installations lack thread owner FKs. Remove connected threads before credentials cascade away.
+-- profiles.user_id already follows account deletion through its existing managed-auth cascade.
 create function public.cleanup_connected_provider_threads() returns trigger language plpgsql security definer
 set search_path=public,pg_temp as $$
 begin
-  delete from public.threads where user_id=old.id and provider_connection_id is not null;
+  delete from public.threads where user_id=old.user_id and provider_connection_id is not null;
   return old;
 end $$;
 revoke all on function public.cleanup_connected_provider_threads() from public,anon,authenticated;
-create trigger users_remove_connected_threads before delete on auth.users
+create trigger profiles_remove_connected_threads before delete on public.profiles
 for each row execute function public.cleanup_connected_provider_threads();
 
 create function public.guard_thread_provider_binding() returns trigger language plpgsql
@@ -120,7 +121,7 @@ grant execute on function public.provider_secret(text,uuid,uuid,jsonb,text,bigin
 
 create table private.provider_oauth_transactions (
   state_hash text primary key,
-  user_id uuid not null references auth.users(id) on delete cascade,
+  user_id uuid not null references public.profiles(user_id) on delete cascade,
   ticket_hash text unique,
   binding_hash text,
   encrypted_payload text not null,
@@ -161,7 +162,7 @@ grant execute on function public.provider_oauth_state(text,text,uuid,text,text,t
 -- Atomic paid-dispatch claim per canonical user row. A disconnect/timeout never implicitly starts it again.
 create table private.provider_turns (
   user_message_id uuid primary key references public.messages(id) on delete cascade,
-  user_id uuid not null references auth.users(id) on delete cascade,
+  user_id uuid not null references public.profiles(user_id) on delete cascade,
   thread_id uuid not null references public.threads(id) on delete cascade,
   connection_id uuid not null references public.provider_connections(id) deferrable initially deferred,
   assistant_id uuid,
