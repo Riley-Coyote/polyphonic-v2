@@ -4346,6 +4346,56 @@ export type Database = {
         }
         Relationships: []
       }
+      provider_connections: {
+        Row: {
+          created_at: string
+          expires_at: string | null
+          granted_scopes: string[]
+          id: string
+          label: string
+          provider: string
+          status: string
+          subject: string | null
+          updated_at: string
+          user_id: string
+          workspace_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          expires_at?: string | null
+          granted_scopes?: string[]
+          id?: string
+          label: string
+          provider: string
+          status: string
+          subject?: string | null
+          updated_at?: string
+          user_id: string
+          workspace_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          expires_at?: string | null
+          granted_scopes?: string[]
+          id?: string
+          label?: string
+          provider?: string
+          status?: string
+          subject?: string | null
+          updated_at?: string
+          user_id?: string
+          workspace_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "provider_connections_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["user_id"]
+          },
+        ]
+      }
       psychological_profile: {
         Row: {
           cognitive_tendencies: Json | null
@@ -4793,6 +4843,7 @@ export type Database = {
           pinned: boolean
           primary_agent_id: string
           project_id: string | null
+          provider_connection_id: string | null
           runtime_mode: string
           selected_model: string | null
           starred: boolean
@@ -4813,6 +4864,7 @@ export type Database = {
           pinned?: boolean
           primary_agent_id?: string
           project_id?: string | null
+          provider_connection_id?: string | null
           runtime_mode?: string
           selected_model?: string | null
           starred?: boolean
@@ -4833,6 +4885,7 @@ export type Database = {
           pinned?: boolean
           primary_agent_id?: string
           project_id?: string | null
+          provider_connection_id?: string | null
           runtime_mode?: string
           selected_model?: string | null
           starred?: boolean
@@ -4842,6 +4895,13 @@ export type Database = {
           voice_mode?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "thread_provider_same_owner"
+            columns: ["provider_connection_id", "user_id"]
+            isOneToOne: false
+            referencedRelation: "provider_connections"
+            referencedColumns: ["id", "user_id"]
+          },
           {
             foreignKeyName: "threads_project_id_fkey"
             columns: ["project_id"]
@@ -5375,6 +5435,41 @@ export type Database = {
       openclaw_verify_device_token: {
         Args: { p_device_id: string; p_token: string }
         Returns: boolean
+      }
+      provider_oauth_state: {
+        Args: {
+          p_action: string
+          p_binding_hash?: string
+          p_expires?: string
+          p_payload?: string
+          p_state_hash?: string
+          p_ticket_hash?: string
+          p_user?: string
+        }
+        Returns: Json
+      }
+      provider_secret: {
+        Args: {
+          p_action: string
+          p_id: string
+          p_lease?: string
+          p_metadata?: Json
+          p_secret?: string
+          p_user: string
+          p_version?: number
+        }
+        Returns: Json
+      }
+      provider_turn: {
+        Args: {
+          p_action: string
+          p_assistant?: string
+          p_connection: string
+          p_message: string
+          p_thread: string
+          p_user: string
+        }
+        Returns: Json
       }
       prune_cron_job_run_details:
         | { Args: never; Returns: number }
