@@ -1,10 +1,14 @@
 # Draft: Polyphonic hosted Sign in with ChatGPT access
 
-Status: prepared for Riley to review. Not submitted.
+Status: prepared with Riley's launch direction and confirmed contact details in the official browser form. Submission was attempted on 2026-10-24, but no confirmation returned and the page logged Cloudflare verification errors. The prefilled form remains open for completion; submission is not confirmed.
 
-**Application:** Polyphonic / Ghost mobile companion, operated by Riley Coyote.
+**Application:** Polyphonic / Ghost mobile companion.
+
+**Official request:** https://openai.com/form/sign-in-with-chatgpt-interest/
 
 **Public website:** https://polyphonic.chat
+
+**Business model:** Basic access to Polyphonic is currently free. We plan to offer paid cloud services in the future. The initial cloud launch lets users explicitly connect their own provider API credentials; approved ChatGPT plan usage would be an additional user-selected funding option. We are requesting the hosted integration path rather than assuming free access qualifies for the local open-source flow.
 
 **Product:** A user-owned AI conversation platform with cloud residents, persistent conversation history and optional desktop runtimes. Users explicitly choose a connected account and model for each new cloud conversation. Ghost mobile can chat through the same cloud account while the user's desktop is unavailable.
 
@@ -28,4 +32,4 @@ https://kknchdnrujzheulqzowv.supabase.co/functions/v1/provider-oauth/callback
 
 **Terms:** https://polyphonic.chat/terms
 
-Riley still needs to supply the application contact and any business/organization details requested by OpenAI, review the actual service/data-retention commitments, and authorize submission. No provider approval, plan eligibility or access is implied by this draft.
+Riley confirmed the application contact and name for the official form; the contact email is kept out of this source document. Service/data-retention commitments must match the published policies. No provider approval, plan eligibility or access is implied by this request.

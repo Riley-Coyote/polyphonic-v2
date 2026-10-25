@@ -7,6 +7,8 @@ This change adds two desktop-independent cloud paths to Polyphonic web and Ghost
 
 Neither path requires a running desktop. They retain the selected Polyphonic resident and load its existing cloud identity, conversation, project and readable continuity context. This first version supports text chat. Desktop tools, attachments, council, Observer, autonomous writes and other background model calls are unavailable on these connections.
 
+Launch direction, 2026-10-24: publish the direct Anthropic API path first so users with their own API credits can test cloud chat while the desktop is unavailable. Basic Polyphonic access is currently free; paid cloud services may follow. Free access does not change the documented remotely hosted ChatGPT integration requirement, so the hosted ChatGPT option remains unavailable until its registration and plan usage permissions are provisioned. Platform-funded usage and billing are outside this release.
+
 ## Implementation
 
 `provider-connections` verifies the Supabase user before listing safe profile metadata, validating an Anthropic key with model discovery, starting/finalizing ChatGPT OAuth, discovering authorized models, creating a bound conversation, or disconnecting. Responses never include provider credentials, refresh tokens, private identity details or ciphertext. `list` includes an account-scoped `thread_bindings` map so mobile can probe the new service without changing its legacy thread SELECT.
