@@ -14,6 +14,7 @@ import { type ConnectionMetadata, type StoredConnection } from "./vault.ts";
 const USER = "11111111-1111-4111-8111-111111111111";
 const ID = "22222222-2222-4222-8222-222222222222";
 const OTHER = "33333333-3333-4333-8333-333333333333";
+const WORKSPACE = "wrkspc_01J7Z8K5H3M9Q2V6N4R0T1ABCD";
 const TICKET = "T".repeat(43);
 const NOW = Math.floor(Date.now() / 1000);
 const CONFIG: ProviderConfiguration = {
@@ -234,7 +235,7 @@ Deno.test("Anthropic connection validates API key/workspace and discovers actual
       action: "save_anthropic",
       connection_id: ID,
       api_key: "sk-ant-api03-fixture-private-key",
-      workspace_id: "wrkspc_fixture",
+      workspace_id: WORKSPACE,
       label: "Personal Claude",
     },
     USER,
@@ -246,7 +247,7 @@ Deno.test("Anthropic connection validates API key/workspace and discovers actual
         assert.equal(new URL(String(url)).pathname, "/v1/models");
         assert.equal(
           new Headers(options?.headers).get("anthropic-workspace-id"),
-          "wrkspc_fixture",
+          WORKSPACE,
         );
         return Promise.resolve(
           Response.json({
@@ -268,36 +269,75 @@ Deno.test("Anthropic connection validates API key/workspace and discovers actual
   assert.deepEqual(store.secret, {
     provider: "anthropic",
     apiKey: "sk-ant-api03-fixture-private-key",
-    workspaceId: "wrkspc_fixture",
+    workspaceId: WORKSPACE,
   });
   assertNoSecrets(result);
   assert.deepEqual(store.record!.connection.granted_scopes, []);
-  assert.equal(store.record!.connection.workspace_id, "wrkspc_fixture");
+  assert.equal(store.record!.connection.workspace_id, WORKSPACE);
 });
 
 Deno.test("Anthropic subscription tokens, malformed keys/workspaces and provider switches never reach model discovery/save", async () => {
   for (
-    const body of [
-      { api_key: "sk-ant-oat01-fixture-subscription-token" },
-      { api_key: "sk-ant-api03-invalid\r\nheader" },
-      { api_key: "short" },
+    const { body, code } of [
       {
-        api_key: "sk-ant-api03-fixture-private-key",
-        workspace_id: "wrong workspace",
+        body: { api_key: "sk-ant-oat01-fixture-subscription-token" },
+        code: "provider_api_key_invalid",
+      },
+      {
+        body: { api_key: "sk-ant-api03-invalid\r\nheader" },
+        code: "provider_api_key_invalid",
+      },
+      { body: { api_key: "short" }, code: "provider_api_key_invalid" },
+      {
+        body: { api_key: "My Claude key" },
+        code: "provider_api_key_invalid",
+      },
+      {
+        body: { api_key: " sk-ant-api03-fixture-private-key " },
+        code: "provider_api_key_invalid",
+      },
+      {
+        body: {
+          api_key: "sk-ant-api03-fixture-private-key",
+          workspace_id: "wrong workspace",
+        },
+        code: "provider_workspace_invalid",
+      },
+      {
+        body: {
+          api_key: "sk-ant-api03-fixture-private-key",
+          workspace_id: "sk-ant-api03-fixture-private-key",
+        },
+        code: "provider_workspace_invalid",
+      },
+      {
+        body: {
+          api_key: "sk-ant-api03-fixture-private-key",
+          workspace_id: "workspace_01J7Z8K5H3M9Q2V6N4R0T1ABCD",
+        },
+        code: "provider_workspace_invalid",
       },
     ]
   ) {
     const store = new FakeStore();
-    await assert.rejects(
+    let requests = 0;
+    await rejectsCode(
       () =>
         connectionAction(
           { action: "save_anthropic", connection_id: ID, ...body },
           USER,
-          deps(store),
+          deps(store, {
+            fetcher: () => {
+              requests++;
+              throw new Error("Unexpected fixture network request");
+            },
+          }),
         ),
-      ProviderError,
+      code,
     );
     assert(!store.events.includes("save-attempt"));
+    assert.equal(store.record, null);
+    assert.equal(requests, 0);
   }
   const store = new FakeStore();
   store.prepare();
@@ -357,6 +397,51 @@ Deno.test("Anthropic upstream auth/catalog failures cannot persist a credential"
       ),
     );
   }
+});
+
+Deno.test("Anthropic workspace selection errors expose static guidance without storing the submitted key", async () => {
+  const store = new FakeStore();
+  let requests = 0;
+  try {
+    await connectionAction(
+      {
+        action: "save_anthropic",
+        connection_id: ID,
+        api_key: "sk-ant-api03-fixture-private-key",
+      },
+      USER,
+      deps(store, {
+        fetcher: () => {
+          requests++;
+          return Promise.resolve(Response.json({
+            error: {
+              type: "invalid_request_error",
+              message:
+                "This API key is not scoped to a workspace, add the anthropic-workspace-id header. sk-ant-api03-fixture-private-key",
+            },
+          }, { status: 400 }));
+        },
+      }),
+    );
+    assert.fail("Expected workspace guidance");
+  } catch (error) {
+    assert(error instanceof ProviderError);
+    assert.equal(error.code, "provider_workspace_required");
+    assert.equal(error.status, 400);
+    assert.equal(
+      error.message,
+      "This Claude key needs a workspace ID. Find it in Claude Console Settings → Workspaces.",
+    );
+    const response = failure(error);
+    assert.equal(response.status, 400);
+    const shown = await response.json();
+    assert.equal(shown.code, "provider_workspace_required");
+    assertNoSecrets(shown);
+    assert(!JSON.stringify(shown).includes("anthropic-workspace-id"));
+  }
+  assert.equal(requests, 1);
+  assert.deepEqual(store.secret, { pending: true });
+  assert.equal(store.record!.connection.status, "needs_reconnect");
 });
 
 Deno.test("ChatGPT start returns only an Edge start ticket while keeping verifier/nonce and previous version server-side", async () => {

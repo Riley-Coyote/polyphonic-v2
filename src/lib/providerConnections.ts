@@ -17,6 +17,9 @@ const messages: Record<string, string> = {
   provider_auth_required: 'Sign in again or reconnect this provider account.',
   provider_access_pending: 'ChatGPT connection is awaiting OpenAI access approval for Polyphonic.',
   provider_configuration_required: 'This provider connection needs server configuration.',
+  provider_api_key_invalid: 'Enter the secret Anthropic API key from Claude Console, beginning sk-ant-api. Copy the key value, not its name or ID.',
+  provider_workspace_invalid: 'Enter the workspace ID beginning wrkspc_, not another API key.',
+  provider_workspace_required: 'This Claude key needs a workspace ID. Find it in Claude Console Settings → Workspaces.',
   provider_permission_required: 'This connection has not authorized the requested model usage.',
   provider_credits_required: 'This account needs available API credits.',
   provider_rate_limited: 'This provider’s usage limit has been reached.',
@@ -36,8 +39,16 @@ export function providerConnectionClient(user: string): ProviderConnectionClient
     });
     let value: unknown;
     try { value = await response.json(); } catch { throw new Error('Cloud provider connections are not available on this server yet.'); }
-    if (!response.ok) throw new Error(object(value) && typeof value.code === 'string' && messages[value.code] ||
-      (response.status === 404 ? 'Cloud provider connections are not available on this server yet.' : 'Could not update this provider connection. Please try again.'));
+    if (!response.ok) {
+      const code = object(value) && typeof value.code === 'string' ? value.code : null;
+      // Older deployments used this code for both invalid input (400) and server setup (503).
+      if (response.status === 400 && code === 'provider_configuration_required') {
+        throw new Error('Check the Claude API key and workspace ID. Use the secret key value; if a workspace is required, enter its wrkspc_ ID.');
+      }
+      throw new Error(code && messages[code] || (response.status === 404
+        ? 'Cloud provider connections are not available on this server yet.'
+        : 'Could not update this provider connection. Please try again.'));
+    }
     if (!object(value)) throw new Error('The server returned an unreadable provider response.');
     return value;
   }

@@ -23,10 +23,11 @@ function deepEqual(actual: unknown, expected: unknown) {
   equal(JSON.stringify(actual), JSON.stringify(expected));
 }
 
+const WORKSPACE = "wrkspc_01J7Z8K5H3M9Q2V6N4R0T1ABCD";
 const credential: AnthropicCredential = {
   provider: "anthropic",
   apiKey: "sk-ant-api03-fixture",
-  workspaceId: "wrkspc_fixture",
+  workspaceId: WORKSPACE,
 };
 const input: ProviderChatInput = {
   model: "claude-fixture",
@@ -131,7 +132,7 @@ Deno.test("Anthropic request uses fixed origin, safe API auth/workspace and text
     equal(init?.redirect, "error");
     const headers = new Headers(init?.headers);
     equal(headers.get("authorization"), "Bearer " + credential.apiKey);
-    equal(headers.get("anthropic-workspace-id"), "wrkspc_fixture");
+    equal(headers.get("anthropic-workspace-id"), WORKSPACE);
     equal(headers.get("anthropic-version"), "2023-06-01");
     equal(headers.get("x-api-key"), null);
     const body = JSON.parse(String(init?.body));
@@ -333,22 +334,28 @@ Deno.test("midstream errors and HTTP errors are typed without echoing private re
       ),
     "provider_credits_required",
   );
-  await fails(
-    () =>
-      collect(async () =>
-        new Response(
-          JSON.stringify({
-            error: {
-              type: "invalid_request_error",
-              message:
-                "This API key is not scoped to a workspace, add the anthropic-workspace-id header. private-fixture-secret",
-            },
-          }),
-          { status: 400 },
-        )
-      ),
-    "provider_configuration_required",
-  );
+  for (
+    const workspaceMessage of [
+      "This API key is not scoped to a workspace, add the anthropic-workspace-id header. private-fixture-secret",
+      "anthropic-workspace-id is required when authenticating with an identity-linked API key. private-fixture-secret",
+    ]
+  ) {
+    await fails(
+      () =>
+        collect(async () =>
+          new Response(
+            JSON.stringify({
+              error: {
+                type: "invalid_request_error",
+                message: workspaceMessage,
+              },
+            }),
+            { status: 400 },
+          )
+        ),
+      "provider_workspace_required",
+    );
+  }
 });
 
 Deno.test("a body transport failure after partial text is an interruption, not a decoder error", async () => {
@@ -487,15 +494,32 @@ Deno.test("invalid requests, subscription tokens and header injection are reject
     await fails(() => collect(fetcher, turn as ProviderChatInput), code);
   }
   for (
-    const key of [
-      { ...credential, apiKey: "sk-ant-oat01-subscription-token" },
-      { ...credential, apiKey: "fixture\r\ninjected" },
-      { ...credential, workspaceId: "workspace\r\ninjected" },
+    const { key, code } of [
+      {
+        key: { ...credential, apiKey: "sk-ant-oat01-subscription-token" },
+        code: "provider_api_key_invalid" as const,
+      },
+      {
+        key: { ...credential, apiKey: "fixture\r\ninjected" },
+        code: "provider_api_key_invalid" as const,
+      },
+      {
+        key: { ...credential, workspaceId: "workspace\r\ninjected" },
+        code: "provider_workspace_invalid" as const,
+      },
+      {
+        key: { ...credential, workspaceId: credential.apiKey },
+        code: "provider_workspace_invalid" as const,
+      },
+      {
+        key: { ...credential, workspaceId: "workspace_fixture" },
+        code: "provider_workspace_invalid" as const,
+      },
     ]
   ) {
     await fails(
       () => collect(fetcher, input, key),
-      "provider_configuration_required",
+      code,
     );
   }
   equal(calls, 0);
@@ -510,7 +534,7 @@ Deno.test("model discovery paginates native IDs and does not call inference", as
     equal(request.pathname, "/v1/models");
     equal(
       new Headers(init?.headers).get("anthropic-workspace-id"),
-      "wrkspc_fixture",
+      WORKSPACE,
     );
     return Response.json(
       calls.length === 1

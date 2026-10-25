@@ -46,6 +46,9 @@ export type ProviderFetch = (
 
 export type ProviderErrorCode =
   | "provider_configuration_required"
+  | "provider_api_key_invalid"
+  | "provider_workspace_invalid"
+  | "provider_workspace_required"
   | "provider_access_pending"
   | "provider_auth_required"
   | "provider_permission_required"
@@ -60,6 +63,12 @@ export type ProviderErrorCode =
 const sentences: Record<ProviderErrorCode, string> = {
   provider_configuration_required:
     "This provider connection needs configuration.",
+  provider_api_key_invalid:
+    "Enter the secret Anthropic API key from Claude Console, beginning sk-ant-api. Copy the key value, not its name or ID.",
+  provider_workspace_invalid:
+    "Enter the workspace ID beginning wrkspc_, not another API key.",
+  provider_workspace_required:
+    "This Claude key needs a workspace ID. Find it in Claude Console Settings → Workspaces.",
   provider_access_pending:
     "ChatGPT plan access is awaiting provider approval for this hosted app.",
   provider_auth_required: "Reconnect this provider account to continue.",

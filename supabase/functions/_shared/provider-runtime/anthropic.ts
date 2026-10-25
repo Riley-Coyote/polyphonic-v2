@@ -33,6 +33,10 @@ function identifier(value: unknown): string {
   }
   return value;
 }
+export function isAnthropicWorkspaceId(value: unknown): value is string {
+  return typeof value === "string" && value.length <= 200 &&
+    /^wrkspc_[A-Za-z0-9]+$/.test(value);
+}
 function headers(credential: AnthropicCredential): Headers {
   if (
     !credential || credential.provider !== "anthropic" ||
@@ -41,7 +45,7 @@ function headers(credential: AnthropicCredential): Headers {
     !/^[\x21-\x7e]+$/.test(credential.apiKey) ||
     credential.apiKey.startsWith("sk-ant-oat")
   ) {
-    throw new ProviderError("provider_configuration_required", 400);
+    throw new ProviderError("provider_api_key_invalid", 400);
   }
   const value = new Headers({
     Authorization: "Bearer " + credential.apiKey,
@@ -49,11 +53,8 @@ function headers(credential: AnthropicCredential): Headers {
     "Content-Type": "application/json",
   });
   if (credential.workspaceId !== undefined) {
-    if (
-      !credential.workspaceId || credential.workspaceId.length > 200 ||
-      !/^[A-Za-z0-9_-]+$/.test(credential.workspaceId)
-    ) {
-      throw new ProviderError("provider_configuration_required", 400);
+    if (!isAnthropicWorkspaceId(credential.workspaceId)) {
+      throw new ProviderError("provider_workspace_invalid", 400);
     }
     value.set("anthropic-workspace-id", credential.workspaceId);
   }
@@ -109,11 +110,11 @@ function upstreamError(status: number, value?: unknown): ProviderError {
   }
   if (
     type === "invalid_request_error" && typeof error?.message === "string" &&
-    /API key is not scoped to a workspace|anthropic-workspace-id header/.test(
+    /API key is not scoped to a workspace|anthropic-workspace-id/i.test(
       error.message,
     )
   ) {
-    return new ProviderError("provider_configuration_required", 400);
+    return new ProviderError("provider_workspace_required", 400);
   }
   if (
     status === 400 || status === 404 || type === "invalid_request_error" ||

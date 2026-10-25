@@ -1,4 +1,4 @@
-import { listAnthropicModels } from "./anthropic.ts";
+import { isAnthropicWorkspaceId, listAnthropicModels } from "./anthropic.ts";
 import {
   beginChatGPTOAuth,
   type ChatGPTOAuthTransaction,
@@ -164,12 +164,11 @@ export async function connectionAction(
       typeof body.api_key !== "string" ||
       !/^sk-ant-api[\x21-\x7e]+$/.test(body.api_key) ||
       body.api_key.length > 4096
-    ) throw new ProviderError("provider_configuration_required", 400);
+    ) throw new ProviderError("provider_api_key_invalid", 400);
     if (
       body.workspace_id !== undefined && body.workspace_id !== "" &&
-      (typeof body.workspace_id !== "string" ||
-        !/^[A-Za-z0-9_-]{1,200}$/.test(body.workspace_id))
-    ) throw new ProviderError("provider_invalid_request", 400);
+      !isAnthropicWorkspaceId(body.workspace_id)
+    ) throw new ProviderError("provider_workspace_invalid", 400);
     const credential: AnthropicCredential = {
       provider: "anthropic",
       apiKey: body.api_key,
