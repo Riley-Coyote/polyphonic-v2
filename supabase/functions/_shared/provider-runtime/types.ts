@@ -64,7 +64,7 @@ const sentences: Record<ProviderErrorCode, string> = {
   provider_configuration_required:
     "This provider connection needs configuration.",
   provider_api_key_invalid:
-    "Enter the secret Anthropic API key from Claude Console, beginning sk-ant-api. Copy the key value, not its name or ID.",
+    "Enter the full Anthropic Console secret key (sk-ant-api… or sk-ant-usr…), not its name or ID.",
   provider_workspace_invalid:
     "Enter the workspace ID beginning wrkspc_, not another API key.",
   provider_workspace_required:

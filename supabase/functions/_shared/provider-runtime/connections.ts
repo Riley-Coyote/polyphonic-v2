@@ -1,4 +1,8 @@
-import { isAnthropicWorkspaceId, listAnthropicModels } from "./anthropic.ts";
+import {
+  isAnthropicApiKey,
+  isAnthropicWorkspaceId,
+  listAnthropicModels,
+} from "./anthropic.ts";
 import {
   beginChatGPTOAuth,
   type ChatGPTOAuthTransaction,
@@ -160,11 +164,9 @@ export async function connectionAction(
     if (previous && previous.connection.provider !== "anthropic") {
       throw new ProviderError("provider_invalid_request", 400);
     }
-    if (
-      typeof body.api_key !== "string" ||
-      !/^sk-ant-api[\x21-\x7e]+$/.test(body.api_key) ||
-      body.api_key.length > 4096
-    ) throw new ProviderError("provider_api_key_invalid", 400);
+    if (!isAnthropicApiKey(body.api_key)) {
+      throw new ProviderError("provider_api_key_invalid", 400);
+    }
     if (
       body.workspace_id !== undefined && body.workspace_id !== "" &&
       !isAnthropicWorkspaceId(body.workspace_id)

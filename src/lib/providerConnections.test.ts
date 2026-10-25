@@ -22,7 +22,7 @@ function reply(status: number, code: string) {
 
 describe('provider connection error guidance', () => {
   it.each([
-    ['provider_api_key_invalid', 'secret Anthropic API key'],
+    ['provider_api_key_invalid', 'sk-ant-api… or sk-ant-usr…'],
     ['provider_workspace_invalid', 'workspace ID beginning wrkspc_'],
     ['provider_workspace_required', 'Claude Console Settings → Workspaces'],
   ])('gives field guidance for %s without echoing a credential', async (code, guidance) => {
@@ -62,5 +62,16 @@ describe('provider connection error guidance', () => {
     mocks.getSession.mockResolvedValue({ data: { session: { user: { id: connection }, access_token: 'fixture-other-session' } }, error: null });
     await expect(providerConnectionClient(user).saveAnthropic(connection, fixtureKey, '')).rejects.toThrow('Sign in again');
     expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  it('forwards a personal Console key and workspace unchanged only to the provider connection endpoint', async () => {
+    const personalKey = 'sk-ant-usr01-FIXTURE-NOT-A-REAL-KEY';
+    const fetcher = vi.fn().mockResolvedValue(new Response('{}', { status: 200 }));
+    vi.stubGlobal('fetch', fetcher);
+    await providerConnectionClient(user).saveAnthropic(connection, personalKey, 'wrkspc_fixture');
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    const [url, request] = fetcher.mock.calls[0];
+    expect(url).toBe(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/provider-connections`);
+    expect(JSON.parse(request.body)).toEqual({ action: 'save_anthropic', connection_id: connection, api_key: personalKey, workspace_id: 'wrkspc_fixture' });
   });
 });

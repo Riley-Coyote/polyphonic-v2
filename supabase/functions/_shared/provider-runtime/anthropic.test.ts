@@ -156,6 +156,29 @@ Deno.test("Anthropic request uses fixed origin, safe API auth/workspace and text
   ]);
 });
 
+Deno.test("Anthropic user Console keys preserve Bearer authentication with or without a workspace", async () => {
+  const apiKey = "sk-ant-usr01-fixture-private-key";
+  for (const workspaceId of [undefined, WORKSPACE]) {
+    const events = await collect(
+      async (_url, init) => {
+        const headers = new Headers(init?.headers);
+        equal(headers.get("authorization"), "Bearer " + apiKey);
+        equal(headers.get("anthropic-workspace-id"), workspaceId ?? null);
+        equal(headers.get("x-api-key"), null);
+        return wire(complete());
+      },
+      input,
+      {
+        provider: "anthropic",
+        apiKey,
+        ...(workspaceId === undefined ? {} : { workspaceId }),
+      },
+    );
+    assert(events.some((event) => event.type === "completed"));
+    assert(!JSON.stringify(events).includes(apiKey));
+  }
+});
+
 Deno.test("Anthropic SSE survives byte-split UTF8 and CRLF, EOF terminal and future events", async () => {
   const events = complete("Hello 👋🏽");
   events.splice(

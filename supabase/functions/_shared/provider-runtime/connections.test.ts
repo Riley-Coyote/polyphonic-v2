@@ -15,6 +15,7 @@ const USER = "11111111-1111-4111-8111-111111111111";
 const ID = "22222222-2222-4222-8222-222222222222";
 const OTHER = "33333333-3333-4333-8333-333333333333";
 const WORKSPACE = "wrkspc_01J7Z8K5H3M9Q2V6N4R0T1ABCD";
+const USER_KEY = "sk-ant-usr01-fixture-private-key";
 const TICKET = "T".repeat(43);
 const NOW = Math.floor(Date.now() / 1000);
 const CONFIG: ProviderConfiguration = {
@@ -188,6 +189,7 @@ function assertNoSecrets(value: unknown): void {
       "fixture-private-refresh-token",
       "fixture-private-id-token",
       "sk-ant-api03-fixture-private-key",
+      USER_KEY,
       "fixture-ciphertext",
       "fixture-openai-subject",
     ]
@@ -276,6 +278,46 @@ Deno.test("Anthropic connection validates API key/workspace and discovers actual
   assert.equal(store.record!.connection.workspace_id, WORKSPACE);
 });
 
+Deno.test("Anthropic user Console keys connect through model discovery with an optional workspace", async () => {
+  for (const workspace of [undefined, WORKSPACE]) {
+    const store = new FakeStore();
+    let requests = 0;
+    const result = await connectionAction(
+      {
+        action: "save_anthropic",
+        connection_id: ID,
+        api_key: USER_KEY,
+        ...(workspace === undefined ? {} : { workspace_id: workspace }),
+      },
+      USER,
+      deps(store, {
+        fetcher: (url, options) => {
+          requests++;
+          assert.equal(new URL(String(url)).pathname, "/v1/models");
+          const headers = new Headers(options?.headers);
+          assert.equal(headers.get("authorization"), "Bearer " + USER_KEY);
+          assert.equal(
+            headers.get("anthropic-workspace-id"),
+            workspace ?? null,
+          );
+          return Promise.resolve(Response.json({
+            data: [{ type: "model", id: "claude-fixture" }],
+            has_more: false,
+          }));
+        },
+      }),
+    );
+    assert.equal(requests, 1);
+    assert.deepEqual(store.secret, {
+      provider: "anthropic",
+      apiKey: USER_KEY,
+      ...(workspace === undefined ? {} : { workspaceId: workspace }),
+    });
+    assert.equal(store.record!.connection.status, "connected");
+    assertNoSecrets(result);
+  }
+});
+
 Deno.test("Anthropic subscription tokens, malformed keys/workspaces and provider switches never reach model discovery/save", async () => {
   for (
     const { body, code } of [
@@ -297,10 +339,22 @@ Deno.test("Anthropic subscription tokens, malformed keys/workspaces and provider
         code: "provider_api_key_invalid",
       },
       {
+        body: { api_key: `${USER_KEY}\n` },
+        code: "provider_api_key_invalid",
+      },
+      {
+        body: { api_key: `sk-ant-usr${"x".repeat(4096)}` },
+        code: "provider_api_key_invalid",
+      },
+      {
         body: {
           api_key: "sk-ant-api03-fixture-private-key",
           workspace_id: "wrong workspace",
         },
+        code: "provider_workspace_invalid",
+      },
+      {
+        body: { api_key: USER_KEY, workspace_id: USER_KEY },
         code: "provider_workspace_invalid",
       },
       {

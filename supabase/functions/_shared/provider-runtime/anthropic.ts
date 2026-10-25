@@ -33,6 +33,10 @@ function identifier(value: unknown): string {
   }
   return value;
 }
+export function isAnthropicApiKey(value: unknown): value is string {
+  return typeof value === "string" && value.length <= 4096 &&
+    /^sk-ant-(?:api|usr)[\x21-\x7e]+/.exec(value)?.[0] === value;
+}
 export function isAnthropicWorkspaceId(value: unknown): value is string {
   return typeof value === "string" && value.length <= 200 &&
     /^wrkspc_[A-Za-z0-9]+$/.test(value);
@@ -40,10 +44,7 @@ export function isAnthropicWorkspaceId(value: unknown): value is string {
 function headers(credential: AnthropicCredential): Headers {
   if (
     !credential || credential.provider !== "anthropic" ||
-    typeof credential.apiKey !== "string" || credential.apiKey.length < 8 ||
-    credential.apiKey.length > 4096 ||
-    !/^[\x21-\x7e]+$/.test(credential.apiKey) ||
-    credential.apiKey.startsWith("sk-ant-oat")
+    !isAnthropicApiKey(credential.apiKey)
   ) {
     throw new ProviderError("provider_api_key_invalid", 400);
   }

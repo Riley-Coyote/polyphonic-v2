@@ -17,7 +17,7 @@ const messages: Record<string, string> = {
   provider_auth_required: 'Sign in again or reconnect this provider account.',
   provider_access_pending: 'ChatGPT connection is awaiting OpenAI access approval for Polyphonic.',
   provider_configuration_required: 'This provider connection needs server configuration.',
-  provider_api_key_invalid: 'Enter the secret Anthropic API key from Claude Console, beginning sk-ant-api. Copy the key value, not its name or ID.',
+  provider_api_key_invalid: 'Enter the full Anthropic Console secret key (sk-ant-api… or sk-ant-usr…), not its name or ID.',
   provider_workspace_invalid: 'Enter the workspace ID beginning wrkspc_, not another API key.',
   provider_workspace_required: 'This Claude key needs a workspace ID. Find it in Claude Console Settings → Workspaces.',
   provider_permission_required: 'This connection has not authorized the requested model usage.',
