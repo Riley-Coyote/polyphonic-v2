@@ -89,6 +89,8 @@ Spec at `docs/memory/`. Adds five augmentations to existing Mnemos / identity / 
 
 ## Decision log
 
+- 2026-10-24 · connected cloud providers · ChatGPT hosted OAuth and direct Anthropic API work proceed in parallel in `codex/cloud-provider-connections`, based on web main `39e36b5`. ChatGPT plan inference remains closed until an approved hosted registration and actual user grants are configured. Claude uses Console API billing. Provider credentials stay in an encrypted service-only vault; conversations bind their account/model explicitly at creation. Canonical user-message claims prevent automatic paid retries or funding fallback. See `docs/connected-provider-runtime.md`.
+
 (Append entries here when you make a non-obvious choice during execution. Format: `YYYY-MM-DD HH:MM · phase NN · what · why`.)
 
 - 2026-04-24 08:54 · phase 02 · placed all 11 primitives under `src/components/ui/luca/` (not `src/components/ui/` per spec) · macOS APFS is case-insensitive — `Tooltip.tsx`/`Select.tsx`/`Textarea.tsx` collide with shadcn lowercase `tooltip.tsx`/`select.tsx`/`textarea.tsx`. Subfolder keeps Luca primitives grouped + avoids collisions. Barrel at `ui/luca/index.ts`.
@@ -140,6 +142,8 @@ Spec at `docs/memory/`. Adds five augmentations to existing Mnemos / identity / 
 
 
 ## Backend asks queue
+
+- [ ] **Connected ChatGPT and Anthropic cloud deployment** — Review and deploy `docs/connected-provider-runtime.md`: legacy route guards, the additive `20261024200000_connected_model_providers.sql` migration, three provider Edge Functions and the web settings/chat changes. Configure the encryption secret through the server secret manager. ChatGPT additionally requires provider-approved hosted client/plan permissions; draft in `docs/chatgpt-hosted-access-request-draft.md` is prepared but unsubmitted. Production inspection confirmed the current web project still uses `39e36b5` and has no connected-provider schema. No production writes, secret configuration, provider application, push or publish has occurred in this implementation run.
 
 Each phase that needs Lovable work surfaces its prompt below. When you reach a `[B]` phase, copy the relevant prompt into Lovable, mark the phase `[B]` here, and continue with the next unblocked phase.
 

@@ -525,7 +525,7 @@ serve(async (req) => {
     // Load the thread's bound agent
       const { data: thread } = await supabase
         .from("threads")
-        .select("agent_id, primary_agent_id, runtime_mode, selected_model, memory_enabled, continuity_summary")
+        .select("*")
       .eq("id", thread_id)
       .eq("user_id", userId)
       .maybeSingle();
@@ -538,6 +538,9 @@ serve(async (req) => {
         }).catch(() => {});
       }
       return fail(new ValidationError("Thread not found"));
+    }
+    if ((thread as Record<string, unknown>).provider_connection_id) {
+      return fail(new AppError("conflict", "This conversation uses a connected provider. Update the app to continue with that connection.", 409));
     }
 
     const agentId = resolveThreadAgentId(thread);

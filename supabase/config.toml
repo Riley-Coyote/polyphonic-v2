@@ -151,6 +151,12 @@ project_id = "kknchdnrujzheulqzowv"
     verify_jwt = false
   [functions.profile-chat]
     verify_jwt = false
+  [functions.provider-connections]
+    verify_jwt = false
+  [functions.provider-oauth]
+    verify_jwt = false
+  [functions.provider-chat]
+    verify_jwt = false
   [functions.scheduled-task-run]
     verify_jwt = false
   [functions.skills-distill]

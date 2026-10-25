@@ -131,7 +131,10 @@ describe('Phase 4 reliability guardrails', () => {
     const customPrompt = readRepoFile('supabase/functions/_shared/agents/custom-agent-prompt.ts');
 
     expect(source).toContain('buildCustomAgentSystemPrompt');
-    expect(source).toContain('.select("agent_id, primary_agent_id, runtime_mode, selected_model, memory_enabled, continuity_summary")');
+    expect(source).toContain('.select("*")');
+    expect(source).toContain('.eq("user_id", userId)');
+    expect(source).toContain('(thread as Record<string, unknown>).provider_connection_id');
+    expect(source).toContain('This conversation uses a connected provider.');
     expect(source).toContain('const agentId = resolveThreadAgentId(thread)');
     expect(source).toContain('backend.keySource !== "user"');
     expect(source).toContain('Custom agents require your own OpenRouter key');
@@ -142,7 +145,9 @@ describe('Phase 4 reliability guardrails', () => {
     expect(source).toContain('identityDocs: continuity.identityDocs');
     expect(source).toContain('agent: agentId');
 
-    expect(legacySource).toContain('.select("id, agent_id, primary_agent_id")');
+    expect(legacySource).toContain('.select("*")');
+    expect(legacySource).toContain('.eq("user_id", userId)');
+    expect(legacySource).toContain('(thread as Record<string, unknown>).provider_connection_id');
     expect(legacySource).toContain('const agentId = resolveThreadAgentId(thread)');
     expect(legacySource).toContain('agentId,');
     expect(legacySource).toContain('includeFunctionalMemory: backend.billingTier !== "guest"');

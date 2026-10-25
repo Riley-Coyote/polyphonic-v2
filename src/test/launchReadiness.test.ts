@@ -60,7 +60,14 @@ describe('launch readiness static gates', () => {
 
     const rows = edgeFunctionNames().map((name) => {
       const source = edgeFunctionSource(name);
+      const connectedProviderAuth = ['provider-chat', 'provider-connections'].includes(name) &&
+        source.includes('await authenticate(request)') && source.includes('../_shared/provider-runtime/edge.ts') &&
+        readRepoFile('supabase/functions/_shared/provider-runtime/edge.ts').includes('client.auth.getUser()');
+      const connectedOAuthAuth = name === 'provider-oauth' && source.includes('oauthHandler(request,') &&
+        readRepoFile('supabase/functions/_shared/provider-runtime/oauth-handler.ts').includes('browserBinding(request)') &&
+        readRepoFile('supabase/functions/_shared/provider-runtime/oauth-handler.ts').includes('"consume"');
       const hasAuthMarker =
+        connectedProviderAuth || connectedOAuthAuth ||
         source.includes('authenticateUser(req)') ||
         source.includes('requireAuth(req)') ||
         source.includes('requireUser(req)') ||
@@ -81,8 +88,8 @@ describe('launch readiness static gates', () => {
       return {
         name,
         verifyJwt: configured.get(name),
-        hasPreflight: /handleCorsPreflightIfNeeded\(req\)|req\.method\s*={0,2}=\s*["']OPTIONS["']/.test(source),
-        hasCorsResponse: /getCorsHeaders\(req\)|jsonResponse\(req|corsHeaders|corsHeaders\(/.test(source),
+        hasPreflight: /handleCorsPreflightIfNeeded\(req\)|(?:req|request)\.method\s*={0,2}=\s*["']OPTIONS["']/.test(source),
+        hasCorsResponse: /getCorsHeaders\(req\)|jsonResponse\(req|corsHeaders|corsHeaders\(|cors\(request\)/.test(source),
         hasCatch: /try\s*\{|wrapHandler\(/.test(source),
         hasAuthMarker,
       };
@@ -91,7 +98,7 @@ describe('launch readiness static gates', () => {
     // Expected count grows as new edge functions land. Each new function must
     // satisfy the wrapper assertions below; bumping the count is intentional
     // and signals a deliberate review.
-    expect(rows.map((row) => row.name)).toHaveLength(119);
+    expect(rows.map((row) => row.name)).toHaveLength(122);
     expect(rows.filter((row) => !row.hasPreflight).map((row) => row.name)).toEqual([]);
     expect(rows.filter((row) => !row.hasCorsResponse).map((row) => row.name)).toEqual([]);
     expect(rows.filter((row) => !row.hasCatch).map((row) => row.name)).toEqual([]);

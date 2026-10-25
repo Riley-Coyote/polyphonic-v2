@@ -162,13 +162,16 @@ serve(async (req) => {
         .single(),
       supabase
         .from("threads")
-        .select("id, agent_id, primary_agent_id")
+        .select("*")
         .eq("id", thread_id)
         .eq("user_id", userId)
         .maybeSingle(),
     ]);
     const settings = settingsRes.data;
     const thread = threadRes.data;
+    if (thread && (thread as Record<string, unknown>).provider_connection_id) {
+      return fail(new AppError("conflict", "This conversation uses a connected provider. Update the app to continue with that connection.", 409));
+    }
 
     const requestedModel = modelOverride || settings?.default_model || "moonshotai/kimi-k2.6";
 
