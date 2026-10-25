@@ -20,6 +20,7 @@ export interface Thread {
   participating_agent_ids: string[];
   runtime_mode?: ThreadRuntimeMode | null;
   selected_model?: string | null;
+  provider_connection_id?: string | null;
   memory_enabled?: boolean | null;
   continuity_summary?: string | null;
   project_id: string | null;
@@ -104,6 +105,8 @@ let activeMessageLoadRequest = 0;
 
 const isLocalStreamStub = (message: Pick<Message, 'metadata'>) =>
   message.metadata?.local_stream_stub === true;
+const isConnectedProviderMessage = (message: Pick<Message, 'metadata'>) =>
+  typeof message.metadata?.provider_connection_id === 'string';
 
 const messageTime = (message: Pick<Message, 'created_at'>) => {
   const parsed = new Date(message.created_at).getTime();
@@ -129,6 +132,7 @@ export const dedupeMessagesForDisplay = (messages: Message[]): Message[] => {
 
     const rowTime = messageTime(row);
     const duplicateIndex = out.findIndex((existing) => {
+      if (isConnectedProviderMessage(existing) || isConnectedProviderMessage(row)) return false;
       if (existing.role !== row.role) return false;
       if ((existing.agent ?? null) !== (row.agent ?? null)) return false;
       if ((existing.kind ?? null) !== (row.kind ?? null)) return false;
@@ -168,6 +172,7 @@ export const mergeRealtimeMessage = (existing: Message[], row: Message): Message
 
   const rowTime = new Date(row.created_at).getTime();
   const stubIndex = existing.findIndex((m) => {
+    if (isConnectedProviderMessage(m) || isConnectedProviderMessage(row)) return false;
     if (m.id === row.id) return false;
     if (m.role !== row.role) return false;
     if ((m.agent ?? null) !== (row.agent ?? null)) return false;
@@ -358,6 +363,7 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
     // local stream stubs may use role/agent/recency only because persisted
     // Council content can be revised after the buffered stream completes.
     const realtimeAlreadyHere = existing.some((m) => {
+      if (isConnectedProviderMessage(m) || isConnectedProviderMessage(msg)) return false;
       if (m.role !== msg.role) return false;
       if ((m.agent ?? null) !== (msg.agent ?? null)) return false;
       const mTime = new Date(m.created_at).getTime();
@@ -402,6 +408,9 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
   },
 
   updateThreadAgent: async (threadId, agentId) => {
+    if (get().threads.find((thread) => thread.id === threadId)?.provider_connection_id != null) {
+      throw new Error('Start a new connected conversation to choose another resident.');
+    }
     await supabase
       .from('threads')
       .update({
@@ -422,6 +431,9 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
   },
 
   updateThreadSelectedModel: async (threadId, modelId) => {
+    if (get().threads.find((thread) => thread.id === threadId)?.provider_connection_id != null) {
+      throw new Error('Start a new connected conversation to choose another model.');
+    }
     await supabase
       .from('threads')
       .update({

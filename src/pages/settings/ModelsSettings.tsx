@@ -1,4 +1,8 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { useAuthStore } from '@/stores/authStore';
+import { ProviderConnections } from '@/components/settings/ProviderConnections';
+import { providerConnectionClient } from '@/lib/providerConnections';
 import { supabase } from '@/integrations/supabase/client';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { Toggle, SelectInput } from '@/components/settings/FormControls';
@@ -21,6 +25,27 @@ const SYNTHESIS_MODEL_OPTIONS = Array.from(
 );
 
 export default function ModelsSettings() {
+  const user = useAuthStore(s => s.user);
+  const userId = user?.id;
+  const navigate = useNavigate();
+  const connections = useMemo(() => userId ? providerConnectionClient(userId) : null, [userId]);
+  const [connectionRevision, setConnectionRevision] = useState(0);
+  const [connectionNotice, setConnectionNotice] = useState('');
+  const finishing = useRef(false);
+  useEffect(() => {
+    if (!connections || finishing.current) return;
+    const parameters = new URLSearchParams(window.location.hash.slice(1));
+    const ticket = parameters.get('provider_complete'), failure = parameters.get('provider_error');
+    if (!ticket && !failure) return;
+    // Completion tickets never remain in browser history, referers, or persistent browser storage.
+    window.history.replaceState(window.history.state, '', `${window.location.pathname}${window.location.search}`);
+    if (failure || !ticket?.match(/^[A-Za-z0-9_-]{43}$/)) { setConnectionNotice('ChatGPT could not be connected. Please try sign-in again.'); return; }
+    finishing.current = true;
+    setConnectionNotice('Finishing ChatGPT connection…');
+    connections.finishChatGPT(ticket).then(() => { setConnectionNotice('ChatGPT account connected. Choose an available model below.'); setConnectionRevision(x => x + 1); })
+      .catch(error => setConnectionNotice(error instanceof Error ? error.message : 'Could not finish the ChatGPT connection.'))
+      .finally(() => { finishing.current = false; });
+  }, [connections]);
   const [apiKey, setApiKey] = useState('');
   const [keyPreview, setKeyPreview] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -115,12 +140,15 @@ export default function ModelsSettings() {
         </div>
         <h1 className="set-head-title">Models</h1>
         <p className="set-head-sub">
-          Available reasoning models, the OpenRouter key that authorizes them,
-          and the multi-model ensemble used to synthesize responses.
+          Your connected model accounts, API keys, and reasoning models.
         </p>
       </div>
 
       <div className="set-body">
+        {connections && <div className="set-section">
+          {connectionNotice && <p role="status" style={{ marginBottom: 20, color: 'var(--text-secondary)' }}>{connectionNotice}</p>}
+          <ProviderConnections key={`${user?.id}:${connectionRevision}`} client={connections} onConversation={id => navigate(`/chat/${id}`)} />
+        </div>}
         <Section
           number="01"
           name="Authorization"

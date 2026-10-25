@@ -8,6 +8,7 @@ import {
   getModelFamily,
   normalizeThreadRuntimeMode,
 } from '@/lib/chatRuntime';
+import { connectedChatRequest, isConnectedChat } from '@/lib/connectedChat';
 
 function readRepoFile(path: string): string {
   return readFileSync(join(process.cwd(), path), 'utf8');
@@ -45,11 +46,24 @@ describe('Chat runtime targets', () => {
     expect(source).toContain('agent: requestMessageAgent');
     expect(source).toContain('<AttachmentSourceControl');
     expect(source).not.toContain('openCompanionFilePicker');
-    expect(source).toContain('!classicChatActive && (');
+    expect(source).toContain('!classicChatActive && !connectedChatActive');
     expect(source).toContain('normalizeStreamComparableContent');
     expect(source).toContain('shouldHideStreamingMirror');
     expect(source).toContain('completedStreamMessageIdRef');
     expect(readRepoFile('src/lib/streamingMirror.ts')).toContain('local_stream_stub');
+  });
+
+  it('keeps a connected provider model on its canonical thread instead of the raw-model/OpenRouter target path', () => {
+    const thread = {
+      id: '11111111-1111-4111-8111-111111111111',
+      provider_connection_id: '22222222-2222-4222-8222-222222222222',
+      selected_model: 'claude-native-fixture',
+    };
+    const saved = { id: '33333333-3333-4333-8333-333333333333', thread_id: thread.id, content: 'Original user message' };
+    expect(isConnectedChat(thread)).toBe(true);
+    expect(connectedChatRequest(thread, saved)).toMatchObject({ model: thread.selected_model, user_message_id: saved.id, message: saved.content });
+    expect(isConnectedChat({ ...thread, provider_connection_id: null })).toBe(false);
+    expect(() => connectedChatRequest({ ...thread, selected_model: null }, saved)).toThrow();
   });
 
   it('keeps chat-multi classic mode direct and quiet', () => {

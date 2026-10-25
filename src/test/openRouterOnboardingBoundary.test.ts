@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { requiresOpenRouterKey } from '@/lib/connectedChat';
 
 function readRepoFile(path: string): string {
   return readFileSync(join(process.cwd(), path), 'utf8');
@@ -17,13 +18,19 @@ describe('OpenRouter onboarding and free guide boundary', () => {
     expect(onboarding).toContain('look around with Guide');
   });
 
-  it('blocks real chat without a user OpenRouter key while preserving the Polyphonic Guide', () => {
+  it('keeps unbound chat behind OpenRouter while separately connected threads use their own account', () => {
     const chatView = readRepoFile('src/pages/ChatView.tsx');
     const chatMulti = readRepoFile('supabase/functions/chat-multi/index.ts');
     const legacyChat = readRepoFile('supabase/functions/chat/index.ts');
     const guardian = readRepoFile('supabase/functions/chat-guardian/index.ts');
 
-    expect(chatView).toContain("const modelKeyMissing = modelKeyStatus !== 'present'");
+    expect(chatView).toContain('requiresOpenRouterKey(currentThread, modelKeyStatus)');
+    for (const status of ['checking', 'missing', 'unknown'] as const) {
+      expect(requiresOpenRouterKey(undefined, status)).toBe(true);
+      expect(requiresOpenRouterKey({ id: 'legacy', provider_connection_id: null }, status)).toBe(true);
+      expect(requiresOpenRouterKey({ id: 'bound', provider_connection_id: 'connected-account' }, status)).toBe(false);
+    }
+    expect(requiresOpenRouterKey(undefined, 'present')).toBe(false);
     expect(chatView).toContain('Ask Polyphonic Guide');
     expect(chatView).toContain("navigate(threadId ? `/chat/${threadId}?guide=1` : '/chat?guide=1'");
     expect(chatMulti).toContain('The free Polyphonic Guide can answer app/setup questions without a key.');

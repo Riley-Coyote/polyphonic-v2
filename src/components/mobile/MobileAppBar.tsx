@@ -13,6 +13,7 @@ import { useNotificationStore, selectPendingInitiationsCount } from '@/stores/no
 import { useThreadStore } from '@/stores/threadStore';
 import { useInterfaceModeStore } from '@/stores/interfaceModeStore';
 import { shouldShowStudioNavigation } from '@/lib/interfaceMode';
+import { isConnectedChat } from '@/lib/connectedChat';
 
 function threadIdFromPath(pathname: string): string | null {
   if (!pathname.startsWith('/chat/')) return null;
@@ -68,7 +69,7 @@ export default function MobileAppBar() {
     [routeThreadId, threads],
   );
   const currentThread = useMemo(
-    () => threads.find((t) => t.id === (currentThreadId || routeThreadId)),
+    () => threads.find((t) => t.id === (routeThreadId || currentThreadId)),
     [currentThreadId, routeThreadId, threads],
   );
 
@@ -80,6 +81,9 @@ export default function MobileAppBar() {
       ? { ...baseMeta, title: 'Create', subtitle: 'Artifacts and work' }
       : baseMeta;
   const isChatSurface = location.pathname.startsWith('/chat');
+  const threadMetadataPending = isChatSurface && !!routeThreadId && !currentThread;
+  const connectedChatActive = isChatSurface && isConnectedChat(currentThread);
+  const targetLocked = connectedChatActive || threadMetadataPending;
   const lastTarget = normalizeChatTargetPreference(lastTargetKind, lastTargetId || landingAgentId, defaultModel || DEFAULT_CHAT_MODEL);
   const pendingModelTarget = isChatSurface && !currentThread && lastTarget.kind === 'model';
   const runtimeAgentId = isChatSurface
@@ -91,15 +95,16 @@ export default function MobileAppBar() {
   const selectedChatModel = currentThread?.selected_model || (pendingModelTarget ? lastTarget.id : defaultModel) || DEFAULT_CHAT_MODEL;
   const classicChatActive = isChatSurface && threadRuntimeMode === 'classic';
   const activeAgentName = availableAgents.find((agent) => agent.id === runtimeAgentId)?.name || 'Luca';
-  const activeThreadId = currentThreadId || routeThreadId;
+  const activeThreadId = routeThreadId || currentThreadId;
   const activeChatTarget: ChatTarget = classicChatActive
     ? { kind: 'model', id: selectedChatModel }
     : { kind: 'agent', id: runtimeAgentId };
-  const title = isChatSurface ? (classicChatActive ? getChatModelLabel(selectedChatModel) : activeAgentName) : meta.title;
-  const subtitle = isChatSurface ? (threadTitle || 'new chat') : meta.subtitle;
-  const showAgentPicker = !!user && isAgentScopedSurface(location.pathname);
+  const title = threadMetadataPending ? 'Loading conversation…' : isChatSurface ? (classicChatActive ? getChatModelLabel(selectedChatModel) : activeAgentName) : meta.title;
+  const subtitle = connectedChatActive ? `${selectedChatModel} · connected account` : isChatSurface ? (threadTitle || 'new chat') : meta.subtitle;
+  const showAgentPicker = !!user && !targetLocked && isAgentScopedSurface(location.pathname);
 
   const handleAgentChange = useCallback(async (id: string) => {
+    if (targetLocked) return;
     if (!id) return;
     const selectingLucaAgent = id === 'luca';
     if (id === runtimeAgentId && (!selectingLucaAgent || !classicChatActive)) return;
@@ -125,6 +130,7 @@ export default function MobileAppBar() {
     navigate(`/chat/${nextThreadId}`);
   }, [
     activeThreadId,
+    targetLocked,
     classicChatActive,
     createThread,
     isChatSurface,
@@ -138,6 +144,7 @@ export default function MobileAppBar() {
   ]);
 
   const handleModelChange = useCallback(async (modelId: string) => {
+    if (targetLocked) return;
     if (!modelId) return;
     if (modelId === selectedChatModel && classicChatActive) return;
     void updateSetting('default_model', modelId);
@@ -158,6 +165,7 @@ export default function MobileAppBar() {
     navigate(`/chat/${nextThreadId}`);
   }, [
     activeThreadId,
+    targetLocked,
     classicChatActive,
     createThread,
     isChatSurface,
@@ -213,7 +221,7 @@ export default function MobileAppBar() {
         ) : (
           <div className="mobile-bar-title-main">{title}</div>
         )}
-        <div className="mobile-bar-title-sub">{subtitle}</div>
+        <div className="mobile-bar-title-sub" style={connectedChatActive ? { display: 'block', marginTop: 3 } : undefined}>{subtitle}</div>
       </div>
 
       <button

@@ -1,0 +1,17 @@
+body { margin: 0; background: var(--canvas); color: var(--text-primary); }
+.lab-shell { max-width: 1300px; padding: 32px; margin: auto; font-size: 13px; }
+.lab-shell header { display: flex; gap: 20px; align-items: flex-start; justify-content: space-between; margin-bottom: 28px; }
+.lab-shell h1 { font-size: 30px; letter-spacing: -.04em; margin: 5px 0 10px; font-weight: 400; }
+.lab-shell p { color: var(--text-secondary); }
+.lab-eyebrow,.lab-simulation { font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--text-tertiary); }
+.lab-controls { display: flex; flex-wrap: wrap; align-items: end; gap: 16px 24px; border-block: 1px solid var(--border); padding: 20px 0; }
+.lab-shell label { display: block; margin-bottom: 7px; font-size: 12px; color: var(--text-secondary); }
+.lab-shell button,.lab-shell select,.lab-shell input:not([type=range]),.lab-shell textarea { background: var(--surface-3); color: var(--text-primary); border: 1px solid var(--border); border-radius: 6px; padding: 10px 12px; font: inherit; min-height: 44px; }
+.lab-shell button { cursor: pointer; }
+.lab-shell button:focus-visible,.lab-shell input:focus-visible,.lab-shell select:focus-visible,.lab-shell textarea:focus-visible { outline: 2px solid var(--text-secondary); outline-offset: 3px; }
+.lab-save,.lab-saved>div { display: flex; flex-wrap: wrap; gap: 7px; }.lab-save label { flex-basis: 100%; }
+.lab-preview { overflow-x: auto; margin: 28px 0; padding-bottom: 12px; }
+.lab-preview iframe { display: block; height: 1100px; max-width: none; border: 1px solid var(--border); border-radius: 8px; margin: auto; }
+.specimen { padding: 28px; }.specimen .lab-simulation { margin-bottom: 30px; }.specimen .provider-connections { --provider-gap: var(--provider-lab-gap, 24px); --provider-radius: var(--provider-lab-radius, 8px); }
+.lab-brief { border-top: 1px solid var(--border); padding-top: 24px; }.lab-brief h2 { font-size: 16px; font-weight: 500; }.lab-brief textarea { display: block; width: 100%; min-height: 145px; resize: vertical; margin: 15px 0; }.lab-brief button { margin-right: 8px; }
+@media(max-width: 620px) { .lab-shell { padding: 20px; }.lab-shell header { flex-direction: column; }.specimen { padding: 20px; } }
