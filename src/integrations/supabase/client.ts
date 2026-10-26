@@ -5,6 +5,9 @@ import { brokeredPreviewStorage } from './previewAuthStorage';
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_PUBLISHABLE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+// Another provider's OAuth code/error must never be consumed as a Polyphonic login.
+const isModelCallback = typeof window !== 'undefined'
+  && window.location.pathname.replace(/\/+$/, '') === '/auth/openrouter/callback';
 
 // Import the supabase client like this:
 // import { supabase } from "@/integrations/supabase/client";
@@ -14,5 +17,6 @@ export const supabase = createClient<Database>(SUPABASE_URL, SUPABASE_PUBLISHABL
     storage: brokeredPreviewStorage(),
     persistSession: true,
     autoRefreshToken: true,
+    detectSessionInUrl: !isModelCallback,
   }
 });
