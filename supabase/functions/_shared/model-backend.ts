@@ -6,6 +6,8 @@
 // Real agent continuity, memory/autonomy, tools, Forge, imports, and advanced
 // model freedom stay on BYOK.
 
+import { AppError, AuthError, MissingApiKeyError } from "./errors.ts";
+
 export type BillingTier = "guest" | "account_free" | "advanced" | "byok";
 export type KeySource = "user" | "platform";
 
@@ -52,10 +54,13 @@ function isAnonymousAuthUser(user: unknown): boolean {
   );
 }
 
-async function loadUserOpenRouterKey(supabase: any, userId: string): Promise<string | null> {
+async function loadUserOpenRouterKey(supabase: any, userId: string, required = false): Promise<string | null> {
   const { data, error } = await supabase.rpc("decrypt_user_api_key", { p_user_id: userId });
   if (error) {
-    console.error("[model-backend] decrypt_user_api_key error:", error);
+    console.error("[model-backend] Could not read the user's OpenRouter connection.");
+    if (required) {
+      throw new AppError("upstream_unavailable", "Could not load your OpenRouter connection. Please try again shortly.", 503);
+    }
   }
   const key = typeof data === "string" ? data.trim() : "";
   return key || null;
@@ -290,6 +295,21 @@ export async function resolveOpenRouterKeyForUser(
   if (userKey) return { apiKey: userKey, keySource: "user" };
   const platformKey = Deno.env.get("OPENROUTER_API_KEY")?.trim() || null;
   return { apiKey: platformKey, keySource: platformKey ? "platform" : null };
+}
+
+/** Real conversations always use the signed-in user's existing key vault. */
+export async function resolveUserChatBackend(
+  supabase: any,
+  userOrId: string | { id?: string } | unknown,
+  requestedModel: string = FREE_LUCA_MODEL,
+): Promise<ChatBackend> {
+  const userId = typeof userOrId === "string" ? userOrId : ((userOrId as { id?: string } | null)?.id || "");
+  if (!userId) throw new AuthError();
+  const userKey = await loadUserOpenRouterKey(supabase, userId, true);
+  if (!userKey) throw new MissingApiKeyError();
+  // Do not inspect platform configuration here. Only the explicit Guide path
+  // below may select platform-funded intelligence.
+  return backendForUserKey(userKey, requestedModel || FREE_LUCA_MODEL);
 }
 
 export async function resolveChatBackend(

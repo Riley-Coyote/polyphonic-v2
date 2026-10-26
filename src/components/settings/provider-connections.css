@@ -25,3 +25,18 @@
 .provider-model-controls .provider-input { flex: 1 1 200px; width: auto; }
 .provider-connections .provider-model-label { flex-basis: 100%; margin: 0; }
 @media(max-width: 620px) { .provider-add { grid-template-columns: 1fr; gap: calc(var(--provider-gap) * 1.5); } .provider-add form { border-top: 1px solid var(--border); padding-top: var(--provider-gap); } .provider-account-top { flex-wrap: wrap; } .provider-heading .provider-button { flex-shrink: 0; } }
+.openrouter-connection { margin-bottom: calc(var(--provider-gap) * 2); }
+.or-connection-body { border-top: 1px solid var(--border); padding-top: var(--provider-gap); }
+.or-key-preview { font-family: var(--font-mono); font-size: 11px; }
+.or-primary { background: var(--text-primary); color: var(--canvas); border-color: var(--text-primary); }
+.or-primary:hover:not(:disabled) { background: var(--text-secondary); border-color: var(--text-secondary); }
+.or-cloud-model { max-width: 600px; }
+.or-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 20px; }
+.or-actions a { text-decoration: none; }
+.or-cancel { margin-left: 10px; }
+.or-manual { margin-top: var(--provider-gap); }
+.or-manual summary { display: list-item; width: fit-content; min-height: 44px; padding: 10px 0; cursor: pointer; color: var(--text-secondary); font-size: 12px; }
+.or-manual summary:focus-visible { outline: 2px solid var(--text-secondary); outline-offset: 3px; }
+.or-manual form { max-width: 600px; padding-bottom: 8px; }
+.or-manual form>button { margin-top: 12px; }
+@media(max-width: 420px) { .or-actions>* { width: 100%; } .or-cancel { margin: 10px 0 0; } }

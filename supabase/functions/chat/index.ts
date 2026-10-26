@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { withModelRetry } from "../_shared/modelRetry.ts";
+import { withOpenRouterRetry } from "../_shared/openrouter.ts";
+import { openRouterError, openRouterStreamError } from "../_shared/openrouter-errors.ts";
 import { getCorsHeaders, handleCorsPreflightIfNeeded } from "../_shared/cors.ts";
 import { buildLucaSystemPrompt } from "../_shared/agents/luca-soul.ts";
 import {
@@ -26,7 +27,7 @@ import {
 } from "../_shared/attachments.ts";
 import { AppError, AuthError, MissingApiKeyError, ValidationError, errorResponse, newRequestId } from "../_shared/errors.ts";
 import { formatProjectContextPrompt, loadProjectContextForThread } from "../_shared/projects/context.ts";
-import { resolveChatBackend } from "../_shared/model-backend.ts";
+import { resolveUserChatBackend } from "../_shared/model-backend.ts";
 import { buildCustomAgentSystemPrompt } from "../_shared/agents/custom-agent-prompt.ts";
 
 function resolveThreadAgentId(thread: { agent_id?: unknown; primary_agent_id?: unknown } | null | undefined): string {
@@ -177,25 +178,25 @@ serve(async (req) => {
 
     let backend;
     try {
-      backend = await resolveChatBackend(supabase, user, requestedModel);
-    } catch {
-      return fail(new AppError("upstream_unavailable", "Free chat is temporarily unavailable. Please try again shortly.", 503));
+      backend = await resolveUserChatBackend(supabase, user, requestedModel);
+    } catch (err) {
+      if (err instanceof MissingApiKeyError) {
+        return fail(new MissingApiKeyError(
+          "Connect OpenRouter before chatting with Luca or custom agents. The free Polyphonic Guide can answer app/setup questions without a key.",
+        ));
+      }
+      return fail(err);
     }
     const shouldRunLegacyToolPlanner = requestedLegacyToolPlanner && backend.allowTools;
     const apiKey = backend.apiKey;
     const model = backend.model;
-    const attachmentBundle = await buildModelAttachmentContent(supabase, userId, attachmentIds, model, apiKey);
-    messageWithAttachments += attachmentBundle.promptContext;
-
-    if (backend.keySource !== "user") {
-      return fail(new MissingApiKeyError(
-        "Connect OpenRouter before chatting with Luca or custom agents. The free Polyphonic Guide can answer app/setup questions without a key.",
-      ));
-    }
-
     if (!thread) {
       return fail(new ValidationError("Thread not found"));
     }
+
+    // Attachment preparation may invoke paid models, so resolve BYOK first.
+    const attachmentBundle = await buildModelAttachmentContent(supabase, userId, attachmentIds, model, apiKey);
+    messageWithAttachments += attachmentBundle.promptContext;
 
     const agentId = resolveThreadAgentId(thread);
     if (agentId !== "luca" && backend.keySource !== "user") {
@@ -360,21 +361,8 @@ serve(async (req) => {
           });
 
           if (!orResponse.ok) {
-            const errBody = await orResponse.text();
-            console.error(`[chat] ${backend.provider} error:`, orResponse.status, errBody);
-            let text = `Model error (${orResponse.status}). Please try again.`;
-            if (backend.keySource === "platform" && (orResponse.status === 401 || orResponse.status === 402 || orResponse.status === 429)) {
-              text = "Free chat is temporarily unavailable. Please try again shortly, or connect your own OpenRouter key in Settings.";
-            }
-            send({
-              type: "error",
-              text,
-              code: "upstream_unavailable",
-              request_id: requestId,
-            });
-            controller.close();
-            clearInterval(heartbeat);
-            return;
+            await orResponse.body?.cancel().catch(() => {});
+            throw openRouterError(orResponse.status);
           }
 
           const reader = orResponse.body?.getReader();
@@ -408,6 +396,11 @@ serve(async (req) => {
 
               try {
                 const chunk = JSON.parse(payload);
+                const providerError = openRouterStreamError(chunk);
+                if (providerError) {
+                  await reader.cancel().catch(() => {});
+                  throw providerError;
+                }
                 const delta = chunk.choices?.[0]?.delta;
                 if (!delta) continue;
 
@@ -429,7 +422,8 @@ serve(async (req) => {
                 if (chunk.usage?.total_tokens) tokensUsed = chunk.usage.total_tokens;
                 const annotations = delta.annotations || chunk.choices?.[0]?.message?.annotations;
                 if (Array.isArray(annotations)) attachmentAnnotations.push(...annotations);
-              } catch {
+              } catch (err) {
+                if (err instanceof AppError) throw err;
                 // Skip malformed chunks
               }
             }
@@ -521,8 +515,9 @@ serve(async (req) => {
             key_source: backend.keySource,
           });
         } catch (err) {
-          console.error("Stream error:", err);
-          send({ type: "error", text: "Stream interrupted", code: "upstream_error", request_id: requestId });
+          const failure = err instanceof AppError ? err : new AppError("upstream_error", "Stream interrupted", 502);
+          console.error("[chat] stream failed:", failure.code);
+          send({ type: "error", text: failure.message, code: failure.code, request_id: requestId });
         } finally {
           clearInterval(heartbeat);
           controller.close();
@@ -585,7 +580,7 @@ async function autoTitleThread(
   if (thread?.title) return;
 
   // Generate title via OpenRouter (non-streaming, fast model)
-  const resp = await withModelRetry(() => fetch("https://openrouter.ai/api/v1/chat/completions", {
+  const resp = await withOpenRouterRetry(() => fetch("https://openrouter.ai/api/v1/chat/completions", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",

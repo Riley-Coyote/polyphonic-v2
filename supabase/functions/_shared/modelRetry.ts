@@ -34,6 +34,8 @@ export interface ModelRetryOpts {
   maxAttempts?: number;
   /** Base backoff in ms; grows exponentially with jitter. Default 400. */
   baseDelayMs?: number;
+  /** Override transient statuses when a provider limit needs user action. */
+  retryStatuses?: readonly number[];
 }
 
 function sleep(ms: number): Promise<void> {
@@ -61,6 +63,7 @@ export async function withModelRetry(
 ): Promise<Response> {
   const maxAttempts = Math.max(1, opts.maxAttempts ?? DEFAULT_MAX_ATTEMPTS);
   const baseDelay = opts.baseDelayMs ?? DEFAULT_BASE_DELAY_MS;
+  const transientStatuses = opts.retryStatuses ? new Set(opts.retryStatuses) : TRANSIENT_STATUS;
   let lastError: unknown = null;
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
@@ -76,7 +79,7 @@ export async function withModelRetry(
       continue;
     }
 
-    if (!TRANSIENT_STATUS.has(resp.status) || attempt >= maxAttempts) {
+    if (!transientStatuses.has(resp.status) || attempt >= maxAttempts) {
       // Success, non-transient error, or out of attempts — hand back to caller.
       return resp;
     }

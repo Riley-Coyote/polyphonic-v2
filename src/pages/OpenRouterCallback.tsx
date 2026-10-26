@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { handleOpenRouterCallbackInPopup } from "@/lib/openrouterAuth";
 
 /**
@@ -11,20 +11,12 @@ import { handleOpenRouterCallbackInPopup } from "@/lib/openrouterAuth";
  * directly), we surface a clear status with a return link instead.
  */
 export default function OpenRouterCallback() {
-  const [status, setStatus] = useState<{ ok: boolean; message: string }>(() =>
-    handleOpenRouterCallbackInPopup(),
-  );
-
-  // Soft return when the page is loaded outside a popup context.
+  const [status, setStatus] = useState<{ ok: boolean | null; message: string }>({ ok: null, message: 'Finishing sign-in…' });
+  const handled = useRef(false);
   useEffect(() => {
-    if (!window.opener) {
-      const t = window.setTimeout(() => {
-        if (window.location.pathname.endsWith("/auth/openrouter/callback")) {
-          window.location.replace("/");
-        }
-      }, 2400);
-      return () => window.clearTimeout(t);
-    }
+    if (handled.current) return;
+    handled.current = true;
+    setStatus(handleOpenRouterCallbackInPopup());
   }, []);
 
   const accent = status.ok
@@ -140,6 +132,7 @@ export default function OpenRouterCallback() {
           70%  { opacity: 0;    transform: scale(2.4); }
           100% { opacity: 0;    transform: scale(2.4); }
         }
+        @media (prefers-reduced-motion: reduce) { .orcb-shell,.orcb-mark::before,.orcb-mark::after,.orcb-dot { animation: none; } }
       `}</style>
 
       <div className="orcb-content">
@@ -148,15 +141,13 @@ export default function OpenRouterCallback() {
         </div>
         <p className="orcb-eyebrow">Polyphonic · OpenRouter</p>
         <h1 className="orcb-title">
-          {status.ok ? "Connected." : "Couldn't connect."}
+          {status.ok === null ? "Finishing sign-in…" : status.ok ? "Returning to Polyphonic." : "Couldn't connect."}
         </h1>
         <p className="orcb-subtitle">
-          {status.ok
-            ? "Returning to Polyphonic. You can close this window if it doesn't close itself."
-            : status.message}
+          {status.message}
         </p>
         {!window.opener && (
-          <a className="orcb-link" href="/">
+          <a className="orcb-link" href="/settings/models">
             Return to Polyphonic
           </a>
         )}

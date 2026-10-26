@@ -1,416 +1,143 @@
-/**
- * OpenRouter PKCE OAuth flow.
- *
- * Lets a user connect (or sign up for) OpenRouter from inside the
- * Polyphonic app: a small popup opens to openrouter.ai/auth, the user
- * authenticates there, OpenRouter redirects the popup back to our
- * /auth/openrouter/callback page with a one-time code, the popup posts
- * the code to its opener (this app) and closes itself, and we exchange
- * the code for a real OpenRouter API key over the OpenRouter token
- * endpoint.
- *
- * The user never leaves Polyphonic, never copy/pastes a key, and new
- * OpenRouter accounts can be created inline from the popup.
- *
- * References:
- *   https://openrouter.ai/docs/use-cases/oauth-pkce
- */
+/** OpenRouter PKCE. The verifier and returned key stay in memory until the key is vaulted. */
+const AUTH_URL = 'https://openrouter.ai/auth';
+const EXCHANGE_URL = 'https://openrouter.ai/api/v1/auth/keys';
+const TIMEOUT_MS = 5 * 60 * 1000;
+const CALLBACK_TYPE = 'openrouter-auth-callback';
+let pending = false;
 
-const OPENROUTER_AUTH_URL = "https://openrouter.ai/auth";
-const OPENROUTER_KEY_EXCHANGE_URL = "https://openrouter.ai/api/v1/auth/keys";
-
-const POPUP_WIDTH = 520;
-const POPUP_HEIGHT = 720;
-/** Slot in sessionStorage where the popup hands the code back if the
- *  postMessage path is unavailable (e.g. opener was reloaded). */
-const FALLBACK_CODE_KEY = "polyphonic_openrouter_pending_code";
-/** Seconds to wait for the popup to return a code before timing out. */
-const POPUP_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
-/** Slot for the per-flow PKCE verifier. We keep it in sessionStorage so
- *  the callback page can read it even if the popup-message path breaks
- *  and we fall back to "did the parent see a code in storage" polling. */
-const VERIFIER_KEY = "polyphonic_openrouter_pkce_verifier";
-
-export interface OpenRouterConnectResult {
-  /** The new API key returned by OpenRouter. Format: `sk-or-v1-…` */
-  key: string;
-  /** Optional metadata OpenRouter returns alongside the key. */
-  user_id?: string;
-  label?: string;
-}
-
+export interface OpenRouterConnectResult { key: string; user_id?: string; label?: string }
 export class OpenRouterAuthError extends Error {
-  code: string;
-  constructor(code: string, message: string) {
-    super(message);
-    this.code = code;
-    this.name = "OpenRouterAuthError";
-  }
+  constructor(public code: string, message: string) { super(message); this.name = 'OpenRouterAuthError'; }
 }
-
-// ──────────────────────────────────────────────────────────────────────
-// PKCE primitives
-// ──────────────────────────────────────────────────────────────────────
-
-function base64UrlEncode(bytes: Uint8Array): string {
-  // btoa works on binary-strings, so we map the byte array through
-  // String.fromCharCode then strip the URL-unsafe characters.
-  let s = "";
-  for (let i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i]);
-  return btoa(s).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-}
-
-function generateVerifier(): string {
-  const arr = new Uint8Array(48); // 48 bytes → 64-char base64url string
-  crypto.getRandomValues(arr);
-  return base64UrlEncode(arr);
-}
-
-async function challengeFromVerifier(verifier: string): Promise<string> {
-  const encoded = new TextEncoder().encode(verifier);
-  const hashed = await crypto.subtle.digest("SHA-256", encoded);
-  return base64UrlEncode(new Uint8Array(hashed));
-}
-
-// ──────────────────────────────────────────────────────────────────────
-// URL builders
-// ──────────────────────────────────────────────────────────────────────
-
-function buildAuthUrl(callbackUrl: string, codeChallenge: string): string {
-  const params = new URLSearchParams({
-    callback_url: callbackUrl,
-    code_challenge: codeChallenge,
-    code_challenge_method: "S256",
-  });
-  return `${OPENROUTER_AUTH_URL}?${params.toString()}`;
-}
-
-function defaultCallbackUrl(): string {
-  return `${window.location.origin}/auth/openrouter/callback`;
-}
-
-// ──────────────────────────────────────────────────────────────────────
-// Token exchange
-// ──────────────────────────────────────────────────────────────────────
-
-async function exchangeCodeForKey(
-  code: string,
-  codeVerifier: string,
-): Promise<OpenRouterConnectResult> {
-  let resp: Response;
-  try {
-    resp = await fetch(OPENROUTER_KEY_EXCHANGE_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        code,
-        code_verifier: codeVerifier,
-        code_challenge_method: "S256",
-      }),
-    });
-  } catch (err) {
-    throw new OpenRouterAuthError(
-      "network",
-      err instanceof Error ? err.message : "Network error talking to OpenRouter.",
-    );
-  }
-
-  if (!resp.ok) {
-    let bodyText = "";
-    try {
-      bodyText = await resp.text();
-    } catch {
-      // ignore
-    }
-    throw new OpenRouterAuthError(
-      "exchange_failed",
-      `OpenRouter token exchange failed (${resp.status}). ${bodyText.slice(0, 220)}`,
-    );
-  }
-
-  let payload: unknown;
-  try {
-    payload = await resp.json();
-  } catch {
-    throw new OpenRouterAuthError(
-      "bad_response",
-      "OpenRouter returned a non-JSON response to the key exchange.",
-    );
-  }
-
-  const key =
-    (payload as { key?: string })?.key ??
-    (payload as { api_key?: string })?.api_key;
-  if (!key || typeof key !== "string") {
-    throw new OpenRouterAuthError(
-      "no_key",
-      "OpenRouter response did not include an API key.",
-    );
-  }
-
-  return {
-    key,
-    user_id: (payload as { user_id?: string })?.user_id,
-    label: (payload as { label?: string })?.label,
-  };
-}
-
-// ──────────────────────────────────────────────────────────────────────
-// Popup orchestration
-// ──────────────────────────────────────────────────────────────────────
-
 interface ConnectOpts {
-  /** Override the callback URL for testing. */
   callbackUrl?: string;
-  /** Called when the popup window opens. */
   onPopupOpen?: () => void;
+  signal?: AbortSignal;
+  /** Check the Polyphonic account before authorization and again before exchange. */
+  beforeAuthorize?: () => Promise<void>;
 }
+function randomValue(): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(48));
+  return encode(bytes);
+}
+function encode(bytes: Uint8Array): string {
+  return btoa(String.fromCharCode(...bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+function cancelled(): OpenRouterAuthError { return new OpenRouterAuthError('cancelled', 'Connection cancelled.'); }
+function checkSignal(signal: AbortSignal) { if (signal.aborted) throw signal.reason instanceof OpenRouterAuthError ? signal.reason : cancelled(); }
+function validKey(key: unknown): key is string {
+  return typeof key === 'string' && /^sk-or-[A-Za-z0-9_-]{16,500}$/.test(key);
+}
+function channelName(state: string) { return `polyphonic.openrouter.${state}`; }
 
-/**
- * Start the OpenRouter PKCE flow. Opens a popup, waits for the callback
- * page to post its `code` back, then exchanges the code for an API key.
- *
- * If the popup is blocked (window.open returned null), throws with code
- * 'popup_blocked' so callers can fall back to a full-page redirect or
- * surface a clear error.
- */
-export async function connectOpenRouter(
-  opts: ConnectOpts = {},
-): Promise<OpenRouterConnectResult> {
-  if (typeof window === "undefined") {
-    throw new OpenRouterAuthError(
-      "no_window",
-      "OpenRouter PKCE flow requires a browser window.",
-    );
-  }
-
-  const callbackUrl = opts.callbackUrl || defaultCallbackUrl();
-
-  const verifier = generateVerifier();
-  const challenge = await challengeFromVerifier(verifier);
-
-  // Stash verifier so the callback page (and recovery polling) can
-  // reach it without us having to keep a JS reference alive across
-  // the popup round-trip.
-  try {
-    sessionStorage.setItem(VERIFIER_KEY, verifier);
-    sessionStorage.removeItem(FALLBACK_CODE_KEY);
-  } catch {
-    // sessionStorage may be unavailable in some embedded contexts;
-    // we keep the in-memory verifier as a backup.
-  }
-
-  const authUrl = buildAuthUrl(callbackUrl, challenge);
-
-  const left = Math.max(0, (window.screen.availWidth - POPUP_WIDTH) / 2);
-  const top = Math.max(0, (window.screen.availHeight - POPUP_HEIGHT) / 2);
-  const features = `width=${POPUP_WIDTH},height=${POPUP_HEIGHT},left=${left},top=${top},menubar=no,toolbar=no,location=no,status=no`;
-  const popup = window.open(authUrl, "polyphonic-openrouter", features);
-
-  if (!popup) {
-    throw new OpenRouterAuthError(
-      "popup_blocked",
-      "Popup blocked. Allow popups for this site, or use the manual key path.",
-    );
-  }
-
-  opts.onPopupOpen?.();
-
-  // Wait for the callback page to send back a code via postMessage,
-  // OR for sessionStorage to surface a code (popup may write there if
-  // postMessage fails for any reason).
-  const code = await new Promise<string>((resolve, reject) => {
-    let done = false;
-    const settle = (action: () => void) => {
-      if (done) return;
-      done = true;
-      action();
+interface CallbackPayload { type: string; state: string; code?: string; error?: boolean }
+function callbackCode(popup: Window, state: string, signal: AbortSignal, authorize: () => void): Promise<string> {
+  return new Promise((resolve, reject) => {
+    let channel: BroadcastChannel | undefined;
+    let settled = false;
+    const finish = (code?: string, error?: OpenRouterAuthError) => {
+      if (settled) return;
+      settled = true;
+      window.removeEventListener('message', onMessage);
+      signal.removeEventListener('abort', onAbort);
+      if (interval !== undefined) window.clearInterval(interval);
+      channel?.close();
+      if (error) reject(error); else resolve(code!);
     };
-
+    const receive = (data: CallbackPayload | null) => {
+      if (!data || data.type !== CALLBACK_TYPE || data.state !== state) return;
+      if (data.error) finish(undefined, new OpenRouterAuthError('authorization_denied', 'OpenRouter was not connected. You can try again.'));
+      else if (typeof data.code === 'string' && data.code.length > 0 && data.code.length <= 4096) finish(data.code);
+      else finish(undefined, new OpenRouterAuthError('missing_code', 'Sign-in did not finish. Please try again.'));
+    };
     const onMessage = (event: MessageEvent) => {
-      if (event.origin !== window.location.origin) return;
-      const data = event.data as
-        | { type?: string; code?: string; error?: string }
-        | null;
-      if (!data || data.type !== "openrouter-auth-callback") return;
-      cleanup();
-      if (data.error) {
-        settle(() =>
-          reject(new OpenRouterAuthError("popup_error", data.error || "")),
-        );
-        return;
-      }
-      if (!data.code) {
-        settle(() =>
-          reject(
-            new OpenRouterAuthError(
-              "popup_no_code",
-              "OpenRouter callback completed without a code.",
-            ),
-          ),
-        );
-        return;
-      }
-      settle(() => resolve(data.code as string));
+      if (event.origin === window.location.origin && event.source === popup) receive(event.data);
     };
-
-    const pollClosed = window.setInterval(() => {
-      // Detect the popup being closed by the user without finishing.
+    const onAbort = () => finish(undefined, signal.reason instanceof OpenRouterAuthError ? signal.reason : cancelled());
+    window.addEventListener('message', onMessage);
+    signal.addEventListener('abort', onAbort, { once: true });
+    // Some identity providers sever window.opener using COOP. A per-flow same-origin
+    // channel recovers that case without persisting the code or verifier in storage.
+    try { channel = new BroadcastChannel(channelName(state)); channel.onmessage = event => receive(event.data); } catch { /* postMessage remains available */ }
+    const interval = window.setInterval(() => {
       try {
-        if (popup.closed) {
-          // Last-chance check: did the callback write a code to storage?
-          const stashed = (() => {
-            try {
-              return sessionStorage.getItem(FALLBACK_CODE_KEY);
-            } catch {
-              return null;
-            }
-          })();
-          if (stashed) {
-            try {
-              sessionStorage.removeItem(FALLBACK_CODE_KEY);
-            } catch {
-              // ignore
-            }
-            cleanup();
-            settle(() => resolve(stashed));
-            return;
-          }
-          cleanup();
-          settle(() =>
-            reject(
-              new OpenRouterAuthError(
-                "popup_closed",
-                "Sign-in window was closed before completing.",
-              ),
-            ),
-          );
-        }
-      } catch {
-        // Cross-origin reads during the OpenRouter portion can throw;
-        // ignore and keep polling.
-      }
+        // COOP can report a still-open popup as closed. Keep the channel alive in
+        // that case; the user can cancel explicitly or the bounded timeout ends it.
+        if (!channel && popup.closed) finish(undefined, new OpenRouterAuthError('popup_closed', 'Sign-in window closed. Please try again.'));
+      } catch { /* Cross-origin popup is expected during authorization. */ }
     }, 500);
-
-    const timeout = window.setTimeout(() => {
-      cleanup();
-      try {
-        popup.close();
-      } catch {
-        // ignore
-      }
-      settle(() =>
-        reject(
-          new OpenRouterAuthError(
-            "timeout",
-            "Sign-in took too long. Please try again.",
-          ),
-        ),
-      );
-    }, POPUP_TIMEOUT_MS);
-
-    function cleanup() {
-      window.removeEventListener("message", onMessage);
-      window.clearInterval(pollClosed);
-      window.clearTimeout(timeout);
-    }
-
-    window.addEventListener("message", onMessage);
+    if (signal.aborted) onAbort();
+    else { try { authorize(); } catch { finish(undefined, new OpenRouterAuthError('popup_blocked', 'Allow popups for Polyphonic, or use an API key instead.')); } }
   });
+}
 
-  // Pull the verifier back out — we may have just resumed from a
-  // fallback-storage code, so prefer the storage value if present.
-  const storedVerifier = (() => {
+export async function connectOpenRouter(opts: ConnectOpts = {}): Promise<OpenRouterConnectResult> {
+  if (typeof window === 'undefined') throw new OpenRouterAuthError('no_window', 'OpenRouter sign-in needs a browser.');
+  if (pending) throw new OpenRouterAuthError('flow_pending', 'Finish or cancel the current OpenRouter connection first.');
+  if (opts.signal?.aborted) throw cancelled();
+  const callback = new URL(opts.callbackUrl || '/auth/openrouter/callback', window.location.origin);
+  if (callback.origin !== window.location.origin) throw new OpenRouterAuthError('invalid_callback', 'Sign-in must return to Polyphonic.');
+  const state = randomValue(), verifier = randomValue();
+  callback.searchParams.set('state', state);
+  // Open synchronously inside the click gesture, before hashing or checking auth.
+  const popup = window.open('about:blank', `polyphonic-openrouter-${state}`, 'width=520,height=720,menubar=no,toolbar=no');
+  if (!popup) throw new OpenRouterAuthError('popup_blocked', 'Allow popups for Polyphonic, or use an API key instead.');
+  pending = true;
+  const controller = new AbortController();
+  const abort = () => controller.abort(cancelled());
+  opts.signal?.addEventListener('abort', abort, { once: true });
+  const timeout = window.setTimeout(() => controller.abort(new OpenRouterAuthError('timeout', 'OpenRouter sign-in took too long. Please try again.')), TIMEOUT_MS);
+  try {
+    opts.onPopupOpen?.();
+    await opts.beforeAuthorize?.();
+    checkSignal(controller.signal);
+    const challenge = encode(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier))));
+    checkSignal(controller.signal);
+    const auth = new URL(AUTH_URL);
+    auth.search = new URLSearchParams({ callback_url: callback.href, code_challenge: challenge, code_challenge_method: 'S256', state, key_label: 'Polyphonic' }).toString();
+    const code = await callbackCode(popup, state, controller.signal, () => { popup.location.href = auth.href; });
+    await opts.beforeAuthorize?.();
+    checkSignal(controller.signal);
+    let response: Response;
     try {
-      return sessionStorage.getItem(VERIFIER_KEY) || verifier;
-    } catch {
-      return verifier;
-    }
-  })();
-
-  // Best-effort cleanup. The verifier is single-use anyway.
-  try {
-    sessionStorage.removeItem(VERIFIER_KEY);
-  } catch {
-    // ignore
-  }
-
-  return await exchangeCodeForKey(code, storedVerifier);
-}
-
-/**
- * Read-only check: is a popup currently open holding the OpenRouter
- * verifier? Useful for callers that want to disable a re-click.
- */
-export function isOpenRouterFlowPending(): boolean {
-  try {
-    return Boolean(sessionStorage.getItem(VERIFIER_KEY));
-  } catch {
-    return false;
+      response = await fetch(EXCHANGE_URL, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code, code_verifier: verifier, code_challenge_method: 'S256' }),
+        credentials: 'omit', cache: 'no-store', referrerPolicy: 'no-referrer', signal: controller.signal,
+      });
+    } catch { checkSignal(controller.signal); throw new OpenRouterAuthError('network', 'Could not reach OpenRouter. Check your connection and try again.'); }
+    // Upstream bodies can contain codes or credentials. Never display or log them.
+    if (!response.ok) throw new OpenRouterAuthError('exchange_failed', 'OpenRouter could not finish sign-in. Please try connecting again.');
+    let payload: { key?: unknown; api_key?: unknown; user_id?: string; label?: string };
+    try { payload = await response.json(); } catch { throw new OpenRouterAuthError('bad_response', 'OpenRouter returned an incomplete connection. Please try again.'); }
+    checkSignal(controller.signal);
+    const key = payload?.key ?? payload?.api_key;
+    if (!validKey(key)) throw new OpenRouterAuthError('no_key', 'OpenRouter did not return a usable key. Please try again.');
+    return { key, user_id: payload.user_id, label: payload.label };
+  } finally {
+    window.clearTimeout(timeout);
+    opts.signal?.removeEventListener('abort', abort);
+    try { popup.close(); } catch { /* Browser may already have closed it. */ }
+    pending = false;
   }
 }
+export function isOpenRouterFlowPending(): boolean { return pending; }
 
-/**
- * Helper used by the /auth/openrouter/callback page. Reads the `code`
- * out of the URL, posts it back to opener, and closes the popup. If
- * postMessage fails for any reason, writes the code to sessionStorage
- * as a fallback so the parent's poll-on-close path can still recover.
- */
-export function handleOpenRouterCallbackInPopup(): {
-  ok: boolean;
-  message: string;
-} {
+/** Callback carries a single-use code; scrub the URL before rendering anything. */
+export function handleOpenRouterCallbackInPopup(): { ok: boolean; message: string } {
   const params = new URLSearchParams(window.location.search);
-  const code = params.get("code");
-  const error = params.get("error");
-
-  let payload: { type: string; code?: string; error?: string };
-  if (error) {
-    payload = {
-      type: "openrouter-auth-callback",
-      error: params.get("error_description") || error,
-    };
-  } else if (code) {
-    payload = { type: "openrouter-auth-callback", code };
-  } else {
-    payload = {
-      type: "openrouter-auth-callback",
-      error: "Missing code in OpenRouter callback URL.",
-    };
-  }
-
+  const state = params.get('state'), code = params.get('code'), error = params.has('error');
+  window.history.replaceState(window.history.state, '', window.location.pathname);
+  if (!state || !/^[A-Za-z0-9_-]{64}$/.test(state)) return { ok: false, message: 'Return to Polyphonic and start the connection again.' };
+  const payload: CallbackPayload = { type: CALLBACK_TYPE, state, ...(code && !error ? { code } : { error: true }) };
+  let delivered = false;
+  try { if (window.opener) { window.opener.postMessage(payload, window.location.origin); delivered = true; } } catch { /* Try the same-origin channel. */ }
   try {
-    if (window.opener) {
-      window.opener.postMessage(payload, window.location.origin);
-    } else if (code) {
-      // Lost the opener (e.g., user reloaded the parent during the
-      // round-trip). Stash the code so the parent's poll-on-close
-      // path can still pick it up if it eventually reopens.
-      try {
-        sessionStorage.setItem(FALLBACK_CODE_KEY, code);
-      } catch {
-        // ignore
-      }
-    }
-  } catch {
-    // postMessage can throw across some sandboxed iframes; treat as a
-    // soft failure.
-  }
-
-  // Close after a beat so any pending postMessage can ship.
-  window.setTimeout(() => {
-    try {
-      window.close();
-    } catch {
-      // ignore — close may be denied if not opener-spawned
-    }
-  }, 80);
-
-  if (error) {
-    return { ok: false, message: payload.error || "Connection failed." };
-  }
-  return {
-    ok: true,
-    message: "Connected. You can close this window.",
-  };
+    const channel = new BroadcastChannel(channelName(state));
+    channel.postMessage(payload); delivered = true;
+    window.setTimeout(() => channel.close(), 150);
+  } catch { /* Browser may not support channels. */ }
+  if (delivered) window.setTimeout(() => { try { window.close(); } catch { /* May be opened directly. */ } }, 200);
+  if (!code || error) return { ok: false, message: 'OpenRouter was not connected. Return to Polyphonic to try again.' };
+  return delivered ? { ok: true, message: 'Sign-in received. Polyphonic will finish saving your connection.' } : { ok: false, message: 'Return to Polyphonic and start the connection again.' };
 }

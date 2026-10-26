@@ -1,9 +1,7 @@
-import { useState, useCallback } from "react";
-import { supabase } from "@/integrations/supabase/client";
-import {
-  connectOpenRouter,
-  OpenRouterAuthError,
-} from "@/lib/openrouterAuth";
+import { useState, useCallback, useEffect, useMemo, useRef } from "react";
+import { useAuthStore } from '@/stores/authStore';
+import { openRouterSettingsClient, openRouterError } from '@/lib/openrouterSettings';
+
 
 type Phase = "idle" | "connecting" | "saving" | "success" | "error";
 
@@ -38,52 +36,27 @@ export default function ConnectOpenRouter({
   const [phase, setPhase] = useState<Phase>("idle");
   const [error, setError] = useState<string | null>(null);
 
+  const userId = useAuthStore(s => s.user?.id);
+  const client = useMemo(() => userId ? openRouterSettingsClient(userId) : null, [userId]);
+  const flow = useRef<AbortController | null>(null);
+  useEffect(() => {
+    setPhase('idle'); setError(null);
+    return () => { flow.current?.abort(); flow.current = null; };
+  }, [client]);
   const start = useCallback(async () => {
-    setError(null);
-    setPhase("connecting");
+    if (!client) { setError('Sign in to Polyphonic to connect OpenRouter.'); return; }
+    const controller = new AbortController();
+    flow.current = controller;
+    setError(null); setPhase('connecting');
     try {
-      const result = await connectOpenRouter();
-      setPhase("saving");
-
-      const { error: saveError } = await supabase.rpc("save_user_api_key", {
-        p_key: result.key,
-      });
-      if (saveError) {
-        throw new OpenRouterAuthError(
-          "save_failed",
-          saveError.message || "Could not save the new key.",
-        );
-      }
-
-      // Read back the preview so callers can render the connected pill.
-      const { data: preview } = await supabase
-        .from("user_api_keys")
-        .select("key_preview")
-        .maybeSingle();
-
-      setPhase("success");
-      onConnected?.(preview?.key_preview ?? null);
+      await client.connect(controller.signal, () => { if (!controller.signal.aborted) setPhase('saving'); });
+      const snapshot = await client.load();
+      if (controller.signal.aborted) return;
+      setPhase('success'); onConnected?.(snapshot.preview);
     } catch (err) {
-      let message = "Connection failed. Please try again.";
-      if (err instanceof OpenRouterAuthError) {
-        message = err.message;
-        if (err.code === "popup_blocked") {
-          message =
-            "Popups are blocked for this site. Allow popups, or paste a key manually below.";
-        } else if (err.code === "popup_closed") {
-          message =
-            "The sign-in window closed before we got a key. Try again.";
-        } else if (err.code === "timeout") {
-          message =
-            "The OpenRouter sign-in window took too long. Try again.";
-        }
-      } else if (err instanceof Error) {
-        message = err.message;
-      }
-      setError(message);
-      setPhase("error");
-    }
-  }, [onConnected]);
+      if (!controller.signal.aborted) { setError(openRouterError(err)); setPhase('error'); }
+    } finally { if (flow.current === controller) flow.current = null; }
+  }, [client, onConnected]);
 
   const buttonText =
     phase === "connecting"
@@ -125,6 +98,7 @@ export default function ConnectOpenRouter({
         <OpenRouterGlyph />
         <span>{buttonText}</span>
       </button>
+      {phase === "connecting" && <button type="button" onClick={() => { flow.current?.abort(); setPhase('idle'); }} style={{ ...styles.button, background: 'transparent', color: 'var(--text-secondary)', border: 'none', boxShadow: 'none' }}>Cancel sign-in</button>}
       {error && (
         <p
           role="alert"
