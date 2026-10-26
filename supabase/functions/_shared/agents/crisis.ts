@@ -14,6 +14,8 @@
 // acute, schedules a 30-minute follow-up the cron-driven `crisis-followup`
 // runner can later honor.
 
+import { isOpenRouterAccountError, openRouterAccountError, openRouterAccountErrorFromUnknown } from "../openrouter-errors.ts";
+
 const CRISIS_MODEL = "anthropic/claude-haiku-4.5";
 const CRISIS_TIMEOUT_MS = 8_000;
 const BENIGN_OPENING_RE =
@@ -116,16 +118,24 @@ export async function classifyCrisis(
     });
 
     if (!response.ok) {
+      const accountError = openRouterAccountError(response.status);
+      if (accountError) {
+        await response.body?.cancel().catch(() => {});
+        throw accountError;
+      }
       console.warn(`[crisis] classifier ${response.status}`);
       return { level: "none", flags: [] };
     }
 
     const data = await response.json();
+    const accountError = openRouterAccountErrorFromUnknown(data);
+    if (accountError) throw accountError;
     const raw = data?.choices?.[0]?.message?.content;
     if (!raw) return { level: "none", flags: [] };
 
     return parseClassifierOutput(raw);
   } catch (err) {
+    if (isOpenRouterAccountError(err)) throw err;
     if (err instanceof Error && err.name === "AbortError") {
       console.warn("[crisis] classifier timed out");
     } else {

@@ -2,10 +2,10 @@ import { useEffect, useId, useState } from 'react';
 import type { ConnectedModel, ConnectionSnapshot, ProviderConnectionClient } from '@/lib/providerConnections';
 import './provider-connections.css';
 
-type Props = { client: ProviderConnectionClient; onConversation: (id: string) => void; onAuthorization?: (url: string) => void; agentId?: string };
+type Props = { client: ProviderConnectionClient; onConversation: (id: string) => void; onAuthorization?: (url: string) => void; agentId?: string; title?: string; description?: string };
 const statusLabels = { connected: 'Connected', identity_only: 'Signed in · chat permission needed', needs_reconnect: 'Reconnect to continue', disabled: 'Disconnected' };
 const errorText = (error: unknown) => error instanceof Error ? error.message : 'Could not update the connection. Please try again.';
-export function ProviderConnections({ client, onConversation, onAuthorization = url => window.location.assign(url), agentId = 'luca' }: Props) {
+export function ProviderConnections({ client, onConversation, onAuthorization = url => window.location.assign(url), agentId = 'luca', title = 'Your model accounts', description = 'Keep chatting in the cloud when your desktop is away.' }: Props) {
   const formId = useId();
   const [snapshot, setSnapshot] = useState<ConnectionSnapshot>();
   const [busy, setBusy] = useState<string | null>('load');
@@ -32,7 +32,7 @@ export function ProviderConnections({ client, onConversation, onAuthorization = 
     await run(id, async () => onAuthorization(await client.startChatGPT(id)));
   }
   return <div className="provider-connections">
-    <div className="provider-heading"><div><h2>Your model accounts</h2><p>Keep chatting in the cloud when your desktop is away.</p></div><button type="button" className="provider-button subtle" disabled={Boolean(busy)} onClick={() => void run('refresh', refresh)}>Refresh</button></div>
+    <div className="provider-heading"><div><h2>{title}</h2><p>{description}</p></div><button type="button" className="provider-button subtle" disabled={Boolean(busy)} onClick={() => void run('refresh', refresh)}>Refresh</button></div>
     <div className="provider-feedback" aria-live="polite">{busy === 'load' && <p>Loading connections…</p>}{notice && <p role="status">{notice}</p>}{error && <p className="provider-error" role="alert">{error}</p>}</div>
     {snapshot?.connections.map(connection => <section className="provider-account" key={connection.id} aria-label={connection.label}>
       <div className="provider-account-top"><div><h3>{connection.label}</h3><p>{connection.provider === 'chatgpt' ? 'ChatGPT subscription' : 'Anthropic API credits'} <span aria-hidden="true">·</span> {statusLabels[connection.status]}</p></div>

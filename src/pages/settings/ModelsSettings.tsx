@@ -3,11 +3,11 @@ import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '@/stores/authStore';
 import { ProviderConnections } from '@/components/settings/ProviderConnections';
 import { providerConnectionClient } from '@/lib/providerConnections';
-import { supabase } from '@/integrations/supabase/client';
+import { OpenRouterConnection } from '@/components/settings/OpenRouterConnection';
+import { openRouterSettingsClient } from '@/lib/openrouterSettings';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { Toggle, SelectInput } from '@/components/settings/FormControls';
 import { Section, InlinePill, Kbd } from '@/components/settings/Section';
-import { MaskedInput, KeyStored } from '@/components/settings/MaskedInput';
 import {
   ModelCard,
   ModelListControls,
@@ -17,7 +17,6 @@ import {
   AgentDot,
 } from '@/components/settings/SettingsPage';
 import { useClock } from '@/components/settings/useClock';
-import ConnectOpenRouter from '@/components/ConnectOpenRouter';
 import { CHAT_MODEL_OPTIONS } from '@/lib/chatRuntime';
 
 const SYNTHESIS_MODEL_OPTIONS = Array.from(
@@ -29,6 +28,7 @@ export default function ModelsSettings() {
   const userId = user?.id;
   const navigate = useNavigate();
   const connections = useMemo(() => userId ? providerConnectionClient(userId) : null, [userId]);
+  const openRouter = useMemo(() => userId ? openRouterSettingsClient(userId) : null, [userId]);
   const [connectionRevision, setConnectionRevision] = useState(0);
   const [connectionNotice, setConnectionNotice] = useState('');
   const finishing = useRef(false);
@@ -46,70 +46,7 @@ export default function ModelsSettings() {
       .catch(error => setConnectionNotice(error instanceof Error ? error.message : 'Could not finish the ChatGPT connection.'))
       .finally(() => { finishing.current = false; });
   }, [connections]);
-  const [apiKey, setApiKey] = useState('');
-  const [keyPreview, setKeyPreview] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
-  const [removing, setRemoving] = useState(false);
-  const [keyError, setKeyError] = useState('');
-  const [keyInfo, setKeyInfo] = useState('');
-
   const time = useClock();
-
-  useEffect(() => {
-    supabase
-      .from('user_api_keys')
-      .select('key_preview')
-      .maybeSingle()
-      .then(({ data }) => {
-        if (data) setKeyPreview(data.key_preview);
-      });
-  }, []);
-
-  const saveKey = async () => {
-    if (!apiKey.trim()) return;
-    setSaving(true);
-    setKeyError('');
-    setKeyInfo('');
-    const { error: saveError } = await supabase.rpc('save_user_api_key', {
-      p_key: apiKey.trim(),
-    });
-    if (saveError) {
-      setKeyError(saveError.message || 'Could not save API key.');
-      setSaving(false);
-      return;
-    }
-    const { data, error: previewError } = await supabase
-      .from('user_api_keys')
-      .select('key_preview')
-      .maybeSingle();
-    if (previewError) {
-      setKeyError(
-        previewError.message ||
-          'API key saved, but preview could not be loaded.',
-      );
-    } else {
-      setKeyPreview(data?.key_preview ?? null);
-      setApiKey('');
-      setKeyInfo('API key saved.');
-    }
-    setSaving(false);
-  };
-
-  const deleteKey = async () => {
-    setRemoving(true);
-    setKeyError('');
-    setKeyInfo('');
-    const { error } = await supabase.rpc('delete_user_api_key');
-    if (error) {
-      setKeyError(error.message || 'Could not remove API key.');
-      setRemoving(false);
-      return;
-    }
-    setKeyPreview(null);
-    setApiKey('');
-    setKeyInfo('API key removed.');
-    setRemoving(false);
-  };
 
   return (
     <SettingsPage
@@ -145,115 +82,11 @@ export default function ModelsSettings() {
       </div>
 
       <div className="set-body">
+        {openRouter && <div className="set-section"><OpenRouterConnection key={userId} client={openRouter} onConversation={id => navigate(`/chat/${id}`)} onModelSaved={model => useSettingsStore.setState({ default_model: model })} /></div>}
         {connections && <div className="set-section">
           {connectionNotice && <p role="status" style={{ marginBottom: 20, color: 'var(--text-secondary)' }}>{connectionNotice}</p>}
-          <ProviderConnections key={`${user?.id}:${connectionRevision}`} client={connections} onConversation={id => navigate(`/chat/${id}`)} />
+          <ProviderConnections key={`${user?.id}:${connectionRevision}`} title="Other AI connections" description="Connect a provider directly, or use an available subscription connection." client={connections} onConversation={id => navigate(`/chat/${id}`)} />
         </div>}
-        <Section
-          number="01"
-          name="Authorization"
-          title="API key"
-          desc="Your OpenRouter API key. Encrypted and stored securely. Funds chats and ensembles that use OpenRouter."
-        >
-          {keyPreview ? (
-            <KeyStored
-              preview={keyPreview}
-              status="connected"
-              onRemove={deleteKey}
-              removing={removing}
-            />
-          ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-              <ConnectOpenRouter
-                variant="primary"
-                label="Connect with OpenRouter"
-                onConnected={(preview) => {
-                  if (preview) {
-                    setKeyPreview(preview);
-                    setKeyInfo('Connected to OpenRouter.');
-                  }
-                }}
-              />
-              <div
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 12,
-                  fontSize: 'var(--settings-mono-size)',
-                  fontWeight: 'var(--weight-medium)',
-                  fontFamily: 'var(--font-mono)',
-                  letterSpacing: 'var(--track-folio)',
-                  textTransform: 'uppercase',
-                  color: 'var(--text-whisper)',
-                }}
-              >
-                <span
-                  style={{
-                    flex: 1,
-                    height: 1,
-                    background:
-                      'linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.07) 100%)',
-                  }}
-                />
-                <span>or paste a key</span>
-                <span
-                  style={{
-                    flex: 1,
-                    height: 1,
-                    background:
-                      'linear-gradient(90deg, rgba(255,255,255,0.07) 0%, transparent 100%)',
-                  }}
-                />
-              </div>
-              <div style={{ display: 'flex', gap: 10, alignItems: 'stretch' }}>
-                <div style={{ flex: 1 }}>
-                  <MaskedInput
-                    value={apiKey}
-                    onChange={setApiKey}
-                    placeholder="sk-or-v1-…"
-                  />
-                </div>
-                <button
-                  type="button"
-                  className="set-btn primary"
-                  onClick={saveKey}
-                  disabled={!apiKey || saving}
-                  style={{ height: 40 }}
-                >
-                  {saving ? 'Saving…' : 'Save'}
-                </button>
-              </div>
-            </div>
-          )}
-          {keyError && (
-            <div
-              style={{
-                marginTop: 10,
-                fontSize: 'var(--settings-caption-size)',
-                fontWeight: 'var(--weight-book)',
-                color: 'var(--red-accent)',
-                fontFamily: 'var(--font-sans)',
-                letterSpacing: 'var(--track-body-tight)',
-              }}
-            >
-              {keyError}
-            </div>
-          )}
-          {keyInfo && (
-            <div
-              style={{
-                marginTop: 10,
-                fontSize: 'var(--settings-caption-size)',
-                fontWeight: 'var(--weight-book)',
-                color: 'var(--text-tertiary)',
-                fontFamily: 'var(--font-sans)',
-                letterSpacing: 'var(--track-body-tight)',
-              }}
-            >
-              {keyInfo}
-            </div>
-          )}
-        </Section>
 
         <ImageModelSection />
         <EnsembleSection />

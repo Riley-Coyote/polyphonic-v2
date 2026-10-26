@@ -1,4 +1,5 @@
 import { ForbiddenError, ValidationError } from "./errors.ts";
+import { isOpenRouterAccountError, openRouterAccountError } from "./openrouter-errors.ts";
 
 // Edge functions in this repository currently resolve a few compatible
 // supabase-js 2.x versions. Keep this helper structural so a protected class
@@ -241,6 +242,11 @@ export async function getModelCapabilities(model: string, apiKey?: string): Prom
         headers: apiKey ? { Authorization: `Bearer ${apiKey}` } : undefined,
         signal: AbortSignal.timeout(8_000),
       });
+      const accountError = apiKey ? openRouterAccountError(response.status) : null;
+      if (accountError) {
+        await response.body?.cancel().catch(() => {});
+        throw accountError;
+      }
       if (response.ok) {
         const body = await response.json();
         for (const entry of body?.data || []) {
@@ -253,6 +259,7 @@ export async function getModelCapabilities(model: string, apiKey?: string): Prom
         }
       }
     } catch (error) {
+      if (isOpenRouterAccountError(error)) throw error;
       console.warn("[attachments] could not refresh model capabilities", error);
     }
     modelCapabilityCache = { expiresAt: Date.now() + 15 * 60 * 1000, rows };
@@ -333,6 +340,11 @@ async function ensureFallbackDerivative(
       }),
       signal: AbortSignal.timeout(120_000),
     });
+    const accountError = openRouterAccountError(response.status);
+    if (accountError) {
+      await response.body?.cancel().catch(() => {});
+      throw accountError;
+    }
     const payload = await response.json();
     const text = openRouterMessageText(payload?.choices?.[0]?.message?.content);
     if (!response.ok || !text) throw new ValidationError(`Could not prepare ${row.original_name} for this model`);
@@ -352,6 +364,11 @@ async function ensureFallbackDerivative(
       }),
       signal: AbortSignal.timeout(120_000),
     });
+    const accountError = openRouterAccountError(response.status);
+    if (accountError) {
+      await response.body?.cancel().catch(() => {});
+      throw accountError;
+    }
     const payload = await response.json();
     const text = typeof payload?.text === "string" ? payload.text.trim() : "";
     if (!response.ok || !text) throw new ValidationError(`Could not transcribe ${row.original_name}`);
@@ -375,6 +392,11 @@ async function ensureFallbackDerivative(
       }),
       signal: AbortSignal.timeout(150_000),
     });
+    const accountError = openRouterAccountError(response.status);
+    if (accountError) {
+      await response.body?.cancel().catch(() => {});
+      throw accountError;
+    }
     const payload = await response.json();
     const text = openRouterMessageText(payload?.choices?.[0]?.message?.content);
     if (!response.ok || !text) throw new ValidationError(`Could not prepare ${row.original_name} for this model`);

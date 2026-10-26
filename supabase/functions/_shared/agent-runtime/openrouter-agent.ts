@@ -12,7 +12,8 @@ import {
   type AutonomousMemoryArtifactsResult,
 } from "../continuity/index.ts";
 import { callMcpTool, type McpToolRegistration } from "../mcp/client.ts";
-import { withModelRetry } from "../modelRetry.ts";
+import { withOpenRouterRetry } from "../openrouter.ts";
+import { openRouterAccountErrorFromUnknown } from "../openrouter-errors.ts";
 import { persistArtifactsFromContent } from "../artifacts/extract.ts";
 import { recordIdempotentResponse } from "../idempotency.ts";
 import { persistPdfAnnotations } from "../attachments.ts";
@@ -182,31 +183,34 @@ export function openRouterAgentSdkStream(options: OpenRouterAgentRuntimeOptions)
       try {
         await runOpenRouterAgentSdkTurn(options, send);
       } catch (err) {
-        console.error("[openrouter-agent-runtime] stream failed:", err);
+        const providerError = openRouterAccountErrorFromUnknown(err);
+        const errorCode = providerError?.code ?? "agent_runtime_error";
+        const errorMessage = providerError?.message ?? "Agent runtime interrupted. Please try again.";
+        console.error("[openrouter-agent-runtime] stream failed:", errorCode);
         await recordRuntimeActivity(options, {
           type: "agent_runtime_error",
           title: "Agent runtime error",
-          summary: err instanceof Error ? err.message.slice(0, 240) : "OpenRouter Agent SDK runtime failed",
+          summary: errorMessage,
           content: {
             thread_id: options.threadId,
             agent_id: options.agentId,
             runtime: "openrouter_agent_sdk",
-            error: err instanceof Error ? err.message : String(err),
+            error: errorCode,
           },
           surfaceToUser: true,
         });
         send({
           type: "error",
-          text: "Agent runtime interrupted. Please try again.",
-          code: "agent_runtime_error",
+          text: errorMessage,
+          code: errorCode,
           request_id: options.requestId,
         });
         if (options.idempotencyKey) {
           await recordIdempotentResponse(options.supabase as any, options.idempotencyKey, options.userId, "chat-send", {
             ok: false,
             status: "error",
-            error: "agent_runtime_error",
-            message: err instanceof Error ? err.message : "OpenRouter Agent SDK runtime failed",
+            error: errorCode,
+            message: errorMessage,
           });
         }
       } finally {
@@ -1052,7 +1056,7 @@ async function autoTitleThread(
   const { data: thread } = await supabase.from("threads").select("title").eq("id", threadId).single();
   if (thread?.title) return;
 
-  const response = await withModelRetry(() => fetch("https://openrouter.ai/api/v1/chat/completions", {
+  const response = await withOpenRouterRetry(() => fetch("https://openrouter.ai/api/v1/chat/completions", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",

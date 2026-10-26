@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { withModelRetry } from "../_shared/modelRetry.ts";
+import { withOpenRouterRetry } from "../_shared/openrouter.ts";
+import { isOpenRouterAccountError, openRouterAccountError, openRouterError, openRouterStreamError } from "../_shared/openrouter-errors.ts";
 import { getCorsHeaders, handleCorsPreflightIfNeeded } from "../_shared/cors.ts";
 import {
   buildReasoningParams,
@@ -66,7 +67,7 @@ import {
 import { persistArtifactsFromContent } from "../_shared/artifacts/extract.ts";
 import { checkAndIncrement } from "../_shared/dailyQuota.ts";
 import { claimIdempotencyKey, recordIdempotentResponse } from "../_shared/idempotency.ts";
-import { resolveChatBackend, type ChatBackend } from "../_shared/model-backend.ts";
+import { resolveUserChatBackend, type ChatBackend } from "../_shared/model-backend.ts";
 import { AppError, AuthError, MissingApiKeyError, ValidationError, errorResponse, newRequestId } from "../_shared/errors.ts";
 import {
   isExtendedRuntimeToolsEnabled,
@@ -354,6 +355,7 @@ async function hydrateHistoricalAttachmentContent(
           : text,
       });
     } catch (error) {
+      if (isOpenRouterAccountError(error)) throw error;
       // History should remain usable when an old attachment has been deleted
       // or quarantined; the durable text turn is still safe to include.
       console.warn("[chat-multi] historical attachment hydration skipped", {
@@ -490,37 +492,31 @@ serve(async (req) => {
       const requestedModel = bodyModel || normalizeModelId(settings?.default_model || DEFAULT_ENSEMBLE[0]) || DEFAULT_ENSEMBLE[0];
     let backend: ChatBackend;
     try {
-      backend = await resolveChatBackend(supabase, user, requestedModel);
+      backend = await resolveUserChatBackend(supabase, user, requestedModel);
     } catch (err) {
-      console.error("[chat-multi] model backend unavailable:", err);
+      if (err instanceof MissingApiKeyError) {
+        const message = "Connect OpenRouter before chatting with Luca or custom agents. The free Polyphonic Guide can answer app/setup questions without a key.";
+        if (idempotencyKey) {
+          await recordIdempotentResponse(supabase, idempotencyKey, userId, "chat-send", {
+            ok: false,
+            error: "missing_api_key",
+            message,
+            requires_openrouter: true,
+          }).catch(() => {});
+        }
+        return fail(new MissingApiKeyError(message));
+      }
       if (idempotencyKey) {
         await recordIdempotentResponse(supabase, idempotencyKey, userId, "chat-send", {
           ok: false,
-          error: "upstream_unavailable",
-          message: "Free chat is temporarily unavailable.",
+          error: err instanceof AppError ? err.code : "upstream_unavailable",
+          message: err instanceof AppError ? err.message : "Could not load your OpenRouter connection. Please try again shortly.",
         }).catch(() => {});
       }
-      return fail(new AppError(
-        "upstream_unavailable",
-        "Free chat is temporarily unavailable. Please try again shortly, or connect your OpenRouter key in Settings.",
-        503,
-      ));
+      return fail(err);
     }
     const apiKey = backend.apiKey;
     const backendKeySource = backend.keySource as string;
-
-    if (backend.keySource !== "user") {
-      const message = "Connect OpenRouter before chatting with Luca or custom agents. The free Polyphonic Guide can answer app/setup questions without a key.";
-      if (idempotencyKey) {
-        await recordIdempotentResponse(supabase, idempotencyKey, userId, "chat-send", {
-          ok: false,
-          error: "missing_api_key",
-          message,
-          requires_openrouter: true,
-        }).catch(() => {});
-      }
-      return fail(new MissingApiKeyError(message));
-    }
 
     // Load the thread's bound agent
       const { data: thread } = await supabase
@@ -1197,6 +1193,11 @@ Allowed preview presets: wave-scattering, reaction-diffusion, fluid-field, field
             ),
           );
 
+          // Do not start more paid stages after a connection/credit/limit failure.
+          for (const outcome of proposerSettled) {
+            if (outcome.status === "rejected" && isOpenRouterAccountError(outcome.reason)) throw outcome.reason;
+          }
+
           const proposerOutcomes: ProposerOutcome[] = proposerSettled.map((res, i) => {
             const character = proposerInputs[i].character;
             if (res.status === "fulfilled" && res.value && typeof res.value.content === "string") {
@@ -1303,6 +1304,10 @@ Allowed preview presets: wave-scattering, reaction-diffusion, fluid-field, field
               ),
             );
 
+            for (const outcome of crosstalkSettled) {
+              if (outcome.status === "rejected" && isOpenRouterAccountError(outcome.reason)) throw outcome.reason;
+            }
+
             crosstalkOutcomes = crosstalkSettled.map((res, i) => {
               const character = crosstalkInputs[i].character;
               if (res.status === "fulfilled" && res.value && typeof res.value.content === "string") {
@@ -1396,8 +1401,10 @@ Allowed preview presets: wave-scattering, reaction-diffusion, fluid-field, field
           });
 
           if (!orResponse.ok) {
-            const errBody = await orResponse.text();
-            console.error("Chairman error:", orResponse.status, errBody);
+            await orResponse.body?.cancel().catch(() => {});
+            const accountError = openRouterAccountError(orResponse.status);
+            if (accountError) throw accountError;
+            console.error("Chairman error:", orResponse.status);
             // Fall back: surface the strongest crosstalk draft (luca first) directly.
             const fallbackContent = (revisedDrafts.find((d) => d.character === "luca") || revisedDrafts[0])?.content?.trim() || "";
             if (!fallbackContent) {
@@ -1510,6 +1517,11 @@ Allowed preview presets: wave-scattering, reaction-diffusion, fluid-field, field
 
               try {
                 const chunk = JSON.parse(payload);
+                const providerError = openRouterStreamError(chunk);
+                if (providerError) {
+                  reader.cancel().catch(() => {});
+                  throw providerError;
+                }
                 const delta = chunk.choices?.[0]?.delta;
                 if (!delta) return;
 
@@ -1540,7 +1552,8 @@ Allowed preview presets: wave-scattering, reaction-diffusion, fluid-field, field
                 }
 
                 if (chunk.usage?.total_tokens) tokensUsed = chunk.usage.total_tokens;
-              } catch {
+              } catch (err) {
+                if (err instanceof AppError) throw err;
                 // Skip malformed chunks
               }
           };
@@ -1653,11 +1666,13 @@ Allowed preview presets: wave-scattering, reaction-diffusion, fluid-field, field
                       send({ type: "revised_content", text: revised.content });
                     }
                   } catch (rerr) {
+                    if (isOpenRouterAccountError(rerr)) throw rerr;
                     console.warn("[council] critique revision failed (non-fatal):", rerr);
                   }
                 }
               }
             } catch (cerr) {
+              if (isOpenRouterAccountError(cerr)) throw cerr;
               console.warn("[council] critique pass failed (non-fatal):", cerr);
             }
           }
@@ -1748,15 +1763,16 @@ Allowed preview presets: wave-scattering, reaction-diffusion, fluid-field, field
           }
           send({ type: "done", ...donePayload });
         } catch (err) {
-          console.error("Multi-model stream error:", err);
+          const failure = err instanceof AppError ? err : new AppError("upstream_error", "Stream interrupted", 502);
+          console.error("[chat-multi] council stream failed:", failure.code);
           if (idempotencyKey) {
             recordIdempotentResponse(supabase, idempotencyKey, userId, "chat-send", {
               ok: false,
-              error: "upstream_error",
-              message: "Stream interrupted",
+              error: failure.code,
+              message: failure.message,
             }).catch((e) => console.warn("idempotency record failed:", e));
           }
-          send({ type: "error", text: "Stream interrupted", code: "upstream_error", request_id: requestId });
+          send({ type: "error", text: failure.message, code: failure.code, request_id: requestId });
         } finally {
           clearInterval(heartbeat);
           controller.close();
@@ -2133,7 +2149,7 @@ async function callModelNonStreaming(
 ): Promise<{ content: string; thinking: string | null; reasoningDetails: unknown[]; toolCalls: unknown[] }> {
   const reasoningParams = reasoningParamsOverride ?? buildReasoningParams(model, effort);
 
-  const response = await withModelRetry(() => fetch("https://openrouter.ai/api/v1/chat/completions", {
+  const response = await withOpenRouterRetry(() => fetch("https://openrouter.ai/api/v1/chat/completions", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -2152,12 +2168,14 @@ async function callModelNonStreaming(
   }));
 
   if (!response.ok) {
-    const errText = await response.text();
-    throw new Error(`${model} returned ${response.status}: ${errText.slice(0, 200)}`);
+    await response.body?.cancel().catch(() => {});
+    throw openRouterError(response.status);
   }
 
   // deno-lint-ignore no-explicit-any
   const data: any = await response.json();
+  const providerError = openRouterStreamError(data);
+  if (providerError) throw providerError;
   const content = data?.choices?.[0]?.message?.content || "";
   const thinking = extractThinkingFromResponse(data, model);
   const message = data?.choices?.[0]?.message;
@@ -2615,45 +2633,8 @@ async function singleModelStream(
         });
 
         if (!orResponse.ok) {
-          const errText = await orResponse.text().catch(() => "");
-          console.error("Single-model provider error:", orResponse.status, errText);
-          const responderLabel = options.runtimeProfile === "classic" ? getModelLabel(model) : agentId;
-          let providerMessage = "";
-          try {
-            const parsed = JSON.parse(errText);
-            providerMessage = parsed?.error?.message || parsed?.message || "";
-          } catch {
-            providerMessage = errText.slice(0, 1_000);
-          }
-          let message = orResponse.status === 401
-            ? `${responderLabel}'s provider key was rejected.`
-            : orResponse.status === 402
-              ? `${responderLabel}'s provider account needs more credits.`
-              : orResponse.status === 429
-                ? `${responderLabel} is rate-limited. Please retry in a moment.`
-                : `${responderLabel} could not complete this response.`;
-          if (backend?.keySource === "platform" && (orResponse.status === 401 || orResponse.status === 402 || orResponse.status === 429)) {
-            message = "Free Luca chat is temporarily unavailable. Please try again shortly, or connect your own OpenRouter key in Settings.";
-          }
-          if (options.idempotencyKey) {
-            recordIdempotentResponse(supabase, options.idempotencyKey, userId, "chat-send", {
-              ok: false,
-              error: "upstream_unavailable",
-              message,
-              status: orResponse.status,
-            }).catch((e) => console.warn("idempotency record failed:", e));
-          }
-          send({
-            type: "error",
-            text: message,
-            code: "upstream_unavailable",
-            status: orResponse.status,
-            detail: providerMessage || (errText ? errText.slice(0, 1_000) : null),
-            request_id: requestId,
-          });
-          controller.close();
-          clearInterval(heartbeat);
-          return;
+          await orResponse.body?.cancel().catch(() => {});
+          throw openRouterError(orResponse.status);
         }
 
         const reader = orResponse.body?.getReader();
@@ -2684,12 +2665,7 @@ async function singleModelStream(
           type?: string;
           function: { name: string; arguments: string };
         }>();
-        let providerStreamError: {
-          message: string;
-          code: string;
-          status: number | null;
-          detail: string | null;
-        } | null = null;
+        let providerStreamError: AppError | null = null;
         let malformedProviderEvents = 0;
         let pendingContent = "";
         let contentGuardActive = true;
@@ -2707,18 +2683,9 @@ async function singleModelStream(
           if (payload === "[DONE]") return;
           try {
             const chunk = JSON.parse(payload);
-            if (chunk?.error) {
-              const upstream = chunk.error;
-              providerStreamError = {
-                message: String(upstream.message || "The provider interrupted the response."),
-                code: String(upstream.code || upstream.type || "provider_stream_error"),
-                status: typeof upstream.status === "number"
-                  ? upstream.status
-                  : typeof upstream.code === "number" ? upstream.code : null,
-                detail: typeof upstream.metadata?.raw === "string"
-                  ? upstream.metadata.raw.slice(0, 1_000)
-                  : null,
-              };
+            const providerError = openRouterStreamError(chunk);
+            if (providerError) {
+              providerStreamError = providerError;
               return;
             }
             const delta = chunk.choices?.[0]?.delta;
@@ -2784,28 +2751,19 @@ async function singleModelStream(
           for (const line of lines) {
             processProviderLine(line);
           }
+          if (providerStreamError) {
+            await reader.cancel().catch(() => {});
+            break;
+          }
         }
         const tail = `${buffer}${decoder.decode()}`;
         for (const line of tail.split("\n")) {
           processProviderLine(line);
         }
         if (providerStreamError) {
-          const streamError = providerStreamError as {
-            message: string;
-            code: string;
-            status: number | null;
-            detail: string | null;
-          };
-          send({
-            type: "error",
-            text: streamError.message,
-            code: streamError.code,
-            status: streamError.status,
-            detail: streamError.detail,
-            request_id: requestId,
-            partial: Boolean(fullContent || fullThinking),
-          });
-          return;
+          const streamError = providerStreamError as AppError;
+          streamError.extra = { ...streamError.extra, partial: Boolean(fullContent || fullThinking) };
+          throw providerStreamError;
         }
         if (guardForgeToolLeaks && contentGuardActive && pendingContent && !forgeLeakDetected) {
           contentGuardActive = false;
@@ -2843,6 +2801,7 @@ async function singleModelStream(
               if (call && typeof call === "object") streamedToolCalls.set(index, call as any);
             }
           } catch (retryErr) {
+            if (isOpenRouterAccountError(retryErr)) throw retryErr;
             console.error("[chat-multi] empty stream retry failed:", retryErr);
           }
         }
@@ -2971,15 +2930,16 @@ async function singleModelStream(
 
         send({ type: "done", ...donePayload });
       } catch (err) {
-        console.error("Single-model stream error:", err);
+        const failure = err instanceof AppError ? err : new AppError("upstream_error", "Stream interrupted", 502);
+        console.error("[chat-multi] single-model stream failed:", failure.code);
         if (options.idempotencyKey) {
           recordIdempotentResponse(supabase, options.idempotencyKey, userId, "chat-send", {
             ok: false,
-            error: "upstream_error",
-            message: "Stream interrupted",
+            error: failure.code,
+            message: failure.message,
           }).catch((e) => console.warn("idempotency record failed:", e));
         }
-        send({ type: "error", text: "Stream interrupted", code: "upstream_error", request_id: requestId });
+        send({ type: "error", text: failure.message, code: failure.code, status: failure.status, partial: failure.extra?.partial, request_id: requestId });
       } finally {
         clearTimeout(providerTimeout);
         options.requestSignal?.removeEventListener("abort", abortProvider);
@@ -3008,7 +2968,7 @@ async function autoTitleThread(
   const { data: thread } = await supabase.from("threads").select("title").eq("id", threadId).single();
   if (thread?.title) return;
 
-  const resp = await withModelRetry(() => fetch("https://openrouter.ai/api/v1/chat/completions", {
+  const resp = await withOpenRouterRetry(() => fetch("https://openrouter.ai/api/v1/chat/completions", {
     method: "POST",
     headers: { "Content-Type": "application/json", "Authorization": `Bearer ${apiKey}` },
     body: JSON.stringify({

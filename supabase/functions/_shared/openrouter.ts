@@ -2,8 +2,18 @@
 // Streaming callers should NOT use this — they need to keep the SSE pipe open.
 
 import { UpstreamUnavailableError } from "./errors.ts";
+import { openRouterError } from "./openrouter-errors.ts";
+import { withModelRetry, type ModelRetryOpts } from "./modelRetry.ts";
 
-const TRANSIENT = new Set([429, 502, 503, 504]);
+const TRANSIENT = new Set([502, 503, 504]);
+
+/** Account/credit/rate errors require user action, never another dispatch. */
+export function withOpenRouterRetry(
+  doFetch: () => Promise<Response>,
+  opts: Omit<ModelRetryOpts, "retryStatuses"> = {},
+): Promise<Response> {
+  return withModelRetry(doFetch, { ...opts, retryStatuses: [500, 502, 503, 504] });
+}
 
 export interface OpenRouterCallOpts {
   apiKey: string;
@@ -32,7 +42,7 @@ export async function openRouterChat(opts: OpenRouterCallOpts): Promise<Response
   let resp: Response;
   try {
     resp = await doFetch();
-  } catch (err) {
+  } catch {
     if (!retry) throw new UpstreamUnavailableError("OpenRouter unreachable");
     await sleep(300 + Math.random() * 400);
     try {
@@ -48,12 +58,8 @@ export async function openRouterChat(opts: OpenRouterCallOpts): Promise<Response
   }
 
   if (!resp.ok) {
-    const txt = await resp.text().catch(() => "");
-    if (TRANSIENT.has(resp.status)) {
-      throw new UpstreamUnavailableError(`OpenRouter ${resp.status}`, { upstream_status: resp.status, body: txt.slice(0, 500) });
-    }
-    // Non-retryable upstream error — bubble status + body
-    throw new UpstreamUnavailableError(`OpenRouter error ${resp.status}`, { upstream_status: resp.status, body: txt.slice(0, 500) });
+    await resp.body?.cancel().catch(() => {});
+    throw openRouterError(resp.status);
   }
   return resp;
 }
