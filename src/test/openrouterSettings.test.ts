@@ -28,10 +28,10 @@ describe('OpenRouter existing vault client', () => {
     expect(vi.mocked(fetch).mock.calls[0][1]!.headers).toMatchObject({ Authorization: 'Bearer fixture-token' });
   });
   it('reads only preview and default model, scoped to the owner', async () => {
-    vi.mocked(fetch).mockImplementation(async url => new Response(JSON.stringify(String(url).includes('user_api_keys') ? [{ key_preview: 'sk-or-…test' }] : [{ default_model: 'test/model' }])));
+    vi.mocked(fetch).mockImplementation(async url => new Response(JSON.stringify(String(url).startsWith('https://openrouter.ai/') ? { data: [{ id: 'test/model', name: 'Test model' }] } : String(url).includes('user_api_keys') ? [{ key_preview: 'sk-or-…test' }] : [{ default_model: 'test/model' }])));
     const state = await openRouterSettingsClient(owner).load();
-    expect(state).toEqual({ connected: true, preview: 'sk-or-…test', model: 'test/model' });
-    for (const [url] of vi.mocked(fetch).mock.calls) { expect(String(url)).toContain(`user_id=eq.${owner}`); expect(String(url)).not.toContain('encrypted_key'); }
+    expect(state).toEqual({ connected: true, preview: 'sk-or-…test', model: 'test/model', models: [{ id: 'test/model', name: 'Test model' }], catalogError: false });
+    for (const [url, options] of vi.mocked(fetch).mock.calls) { if (String(url).startsWith('https://openrouter.ai/')) { expect(options).toMatchObject({ credentials: 'omit' }); expect(options?.headers).toBeUndefined(); } else expect(String(url)).toContain(`user_id=eq.${owner}`); expect(String(url)).not.toContain('encrypted_key'); }
   });
   it('saves a checked model preference and creates an explicit OpenRouter chat', async () => {
     const client = openRouterSettingsClient(owner);
