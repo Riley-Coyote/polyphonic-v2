@@ -62,4 +62,24 @@ describe('simple OpenRouter setup', () => {
     expect(screen.queryByRole('button', { name: 'Chat with Luca' })).not.toBeInTheDocument();
     expect(first.load).toHaveBeenCalledTimes(1); expect(second.saveKey).not.toHaveBeenCalled();
   });
+  it('omits retired model choices and requires an explicit available replacement', async () => {
+    const client = fixture(true), open = vi.fn();
+    client.load = vi.fn(async () => ({ connected: true, preview: 'sk-or-…test', model: 'retired/model', models: [{ id: 'moonshotai/kimi-k2.6', name: 'Kimi K2.6' }] }));
+    render(<OpenRouterConnection client={client} onConversation={open} />);
+    await screen.findByLabelText('Default cloud model');
+    expect(screen.getByRole('option', { name: 'Kimi K2.6' })).toBeInTheDocument();
+    expect(screen.queryByRole('option', { name: 'Grok 4.1 Fast' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Chat with Luca' })).toBeDisabled();
+    expect(screen.getByRole('status')).toHaveTextContent('no longer listed');
+    expect(client.setModel).not.toHaveBeenCalled(); expect(client.createThread).not.toHaveBeenCalled();
+  });
+  it('preserves a saved connection when the public catalog is unavailable', async () => {
+    const client = fixture(true);
+    client.load = vi.fn(async () => ({ connected: true, preview: 'sk-or-…test', model: 'moonshotai/kimi-k2.6', models: [], catalogError: true }));
+    render(<OpenRouterConnection client={client} onConversation={vi.fn()} />);
+    expect(await screen.findByRole('status')).toHaveTextContent('saved connection is still here');
+    expect(screen.getByRole('button', { name: 'Disconnect' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Chat with Luca' })).toBeDisabled();
+  });
+
 });

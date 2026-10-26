@@ -2,7 +2,8 @@ import { supabase } from '@/integrations/supabase/client';
 import { connectOpenRouter, OpenRouterAuthError } from './openrouterAuth';
 import { DEFAULT_CHAT_MODEL } from './chatRuntime';
 
-export interface OpenRouterSnapshot { connected: boolean; preview: string | null; model: string }
+export interface OpenRouterModel { id: string; name: string }
+export interface OpenRouterSnapshot { connected: boolean; preview: string | null; model: string; models?: OpenRouterModel[]; catalogError?: boolean }
 export interface OpenRouterSettingsClient {
   load(): Promise<OpenRouterSnapshot>;
   connect(signal: AbortSignal, onSaving?: () => void): Promise<void>;
@@ -13,6 +14,25 @@ export interface OpenRouterSettingsClient {
 }
 export const openRouterError = (error: unknown) => error instanceof OpenRouterAuthError ? error.message : 'Could not update OpenRouter. Check your connection and try again.';
 const failure = (code: string, message: string) => new OpenRouterAuthError(code, message);
+
+// Availability is public and independent of the user's account or credits.
+let catalogCache: { expires: number; models: OpenRouterModel[] } | undefined;
+async function publicModels(): Promise<OpenRouterModel[] | null> {
+  if (catalogCache && catalogCache.expires > Date.now()) return catalogCache.models;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 8000);
+  try {
+    const response = await fetch('https://openrouter.ai/api/v1/models', { credentials: 'omit', cache: 'no-store', referrerPolicy: 'no-referrer', signal: controller.signal });
+    if (!response.ok) return null;
+    const value = await response.json();
+    if (!Array.isArray(value?.data)) return null;
+    const models = value.data.filter((m: { id?: unknown; name?: unknown }) => typeof m?.id === 'string' && m.id.length <= 200 && typeof m.name === 'string' && m.name.length <= 200).map((m: OpenRouterModel) => ({ id: m.id, name: m.name }));
+    if (!models.length) return null;
+    catalogCache = { expires: Date.now() + 5 * 60 * 1000, models };
+    return models;
+  } catch { return null; }
+  finally { clearTimeout(timeout); }
+}
 
 /** Each request captures this account's bearer token. A later account switch can
  * never save the first person's key into the second person's vault. */
@@ -48,13 +68,15 @@ export function openRouterSettingsClient(userId: string): OpenRouterSettingsClie
   return {
     async load() {
       const owner = encodeURIComponent(userId);
-      const [keys, settings] = await Promise.all([
+      const [keys, settings, models] = await Promise.all([
         request(`user_api_keys?select=key_preview&user_id=eq.${owner}&limit=1`),
         request(`user_settings?select=default_model&user_id=eq.${owner}&limit=1`),
+        publicModels(),
       ]);
       await session();
       if (!Array.isArray(keys) || !Array.isArray(settings)) throw failure('bad_response', 'Could not load your cloud connection. Please refresh.');
       return { connected: keys.length > 0, preview: typeof keys[0]?.key_preview === 'string' ? keys[0].key_preview : null,
+        models: models ?? [], catalogError: models === null,
         model: typeof settings[0]?.default_model === 'string' ? settings[0].default_model : DEFAULT_CHAT_MODEL };
     },
     async connect(signal, onSaving) {
